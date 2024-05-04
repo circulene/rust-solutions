@@ -1,6 +1,6 @@
 use assert_cmd::Command;
 use predicates::prelude::predicate;
-use std::{fs, str::FromStr};
+use std::fs;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

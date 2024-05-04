@@ -63,7 +63,7 @@ pub fn run(config: Config) -> MyResult<()> {
                 let mut n = 0;
                 for line in buf.lines() {
                     let line = line?;
-                    if config.number_lines || (config.number_nonblank_lines && line != "") {
+                    if config.number_lines || (config.number_nonblank_lines && !line.is_empty()) {
                         n += 1;
                         println!("     {}\t{}", n, line);
                     } else {
