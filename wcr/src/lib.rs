@@ -116,30 +116,28 @@ pub fn count(mut file: impl BufRead) -> Result<FileInfo> {
     })
 }
 
+fn format_count(count: usize, show: bool) -> String {
+    if show {
+        format!("{count:>8}")
+    } else {
+        "".to_string()
+    }
+}
+
 fn print_file_info(config: &Config, filename: &str, file_info: &FileInfo) {
-    let mut counts: Vec<usize> = Vec::new();
-    if config.lines {
-        counts.push(file_info.num_lines);
-    }
-    if config.words {
-        counts.push(file_info.num_words);
-    }
-    if config.bytes {
-        counts.push(file_info.num_bytes);
-    }
-    if config.chars {
-        counts.push(file_info.num_chars);
-    }
-    let result = counts
-        .iter()
-        .map(|n| format!("{:>8}", n))
-        .fold(String::new(), |acc, x| format!("{acc}{x:>8}"));
     let show_file_name = if filename != "-" {
         format!(" {filename}")
     } else {
         "".to_string()
     };
-    println!("{result}{show_file_name}");
+    println!(
+        "{}{}{}{}{}",
+        format_count(file_info.num_lines, config.lines),
+        format_count(file_info.num_words, config.words),
+        format_count(file_info.num_bytes, config.bytes),
+        format_count(file_info.num_chars, config.chars),
+        show_file_name
+    );
 }
 
 pub fn run(config: Config) -> Result<()> {
