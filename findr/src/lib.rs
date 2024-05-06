@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{builder::PossibleValue, Parser, ValueEnum};
 use regex::Regex;
+use std::fmt::Debug;
 use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -45,44 +46,40 @@ pub fn get_args() -> Result<Config> {
     Ok(config)
 }
 
-fn is_name_matched(names: &[Regex], entry: &DirEntry) -> bool {
-    let name = entry.file_name().to_string_lossy();
-    if !names.is_empty() {
-        names.iter().any(|x| x.is_match(&name))
-    } else {
-        true
-    }
-}
-
-fn is_entry_type_matched(entry_types: &[EntryType], entry: &DirEntry) -> bool {
-    let file_type = entry.file_type();
-    if !entry_types.is_empty() {
-        entry_types.iter().any(|x| match x {
-            EntryType::Dir => file_type.is_dir(),
-            EntryType::File => file_type.is_file(),
-            EntryType::Link => file_type.is_symlink(),
-        })
-    } else {
-        true
-    }
-}
-
 pub fn run(config: Config) -> Result<()> {
+    let name_filter = |entry: &DirEntry| {
+        config.names.is_empty()
+            || config
+                .names
+                .iter()
+                .any(|regex| regex.is_match(&entry.file_name().to_string_lossy()))
+    };
+    let entry_type_filter = |entry: &DirEntry| {
+        let file_type = entry.file_type();
+        config.entry_types.is_empty()
+            || config
+                .entry_types
+                .iter()
+                .any(|entry_type| match entry_type {
+                    EntryType::Dir => file_type.is_dir(),
+                    EntryType::File => file_type.is_file(),
+                    EntryType::Link => file_type.is_symlink(),
+                })
+    };
     for path in config.paths {
-        for entry in WalkDir::new(path) {
-            match entry {
-                Err(e) => eprintln!("{e}"),
-                Ok(entry) => {
-                    if !is_name_matched(&config.names, &entry) {
-                        continue;
-                    }
-                    if !is_entry_type_matched(&config.entry_types, &entry) {
-                        continue;
-                    }
-                    println!("{}", entry.path().display());
+        WalkDir::new(path)
+            .into_iter()
+            .filter_map(|entry| match entry {
+                Err(e) => {
+                    eprintln!("{e}");
+                    None
                 }
-            }
-        }
+                Ok(entry) => Some(entry),
+            })
+            .filter(name_filter)
+            .filter(entry_type_filter)
+            .map(|entry| format!("{}", entry.path().display()))
+            .for_each(|path| println!("{path}"));
     }
     Ok(())
 }
