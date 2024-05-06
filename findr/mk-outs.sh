@@ -39,3 +39,13 @@ find "$IN_DIR/a" "$IN_DIR/d" -name \*.txt > "$OUT_DIR/name_txt_path_a_d.txt"
 find "$IN_DIR" -name a* > "$OUT_DIR/name_a.txt"
 find "$IN_DIR" -type f -name a* > "$OUT_DIR/type_f_name_a.txt"
 find "$IN_DIR" -type d -name a* > "$OUT_DIR/type_d_name_a.txt"
+
+find "$IN_DIR" -mindepth 0 > "$OUT_DIR/mindepth_0.txt"
+find "$IN_DIR" -mindepth 2 > "$OUT_DIR/mindepth_2.txt"
+find "$IN_DIR" -mindepth 5 > "$OUT_DIR/mindepth_5.txt"
+
+find "$IN_DIR" -maxdepth 0 > "$OUT_DIR/maxdepth_0.txt"
+find "$IN_DIR" -maxdepth 2 > "$OUT_DIR/maxdepth_2.txt"
+find "$IN_DIR" -maxdepth 5 > "$OUT_DIR/maxdepth_5.txt"
+
+find "$IN_DIR" -mindepth 1 -maxdepth 3 > "$OUT_DIR/mindepth_1_maxdepth_3.txt"

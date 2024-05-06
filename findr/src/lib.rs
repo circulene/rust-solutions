@@ -39,6 +39,14 @@ pub struct Config {
     /// Entry type
     #[arg(short = 't', long = "type", value_name = "TYPE", num_args(0..), value_enum)]
     entry_types: Vec<EntryType>,
+
+    /// Minimum depth
+    #[arg(long = "mindepth")]
+    min_depth: Option<usize>,
+
+    /// Maximum depth
+    #[arg(long = "maxdepth")]
+    max_depth: Option<usize>,
 }
 
 pub fn get_args() -> Result<Config> {
@@ -67,7 +75,14 @@ pub fn run(config: Config) -> Result<()> {
                 })
     };
     for path in config.paths {
-        WalkDir::new(path)
+        let mut walk_dir = WalkDir::new(path);
+        if let Some(depth) = config.min_depth {
+            walk_dir = walk_dir.min_depth(depth);
+        }
+        if let Some(depth) = config.max_depth {
+            walk_dir = walk_dir.max_depth(depth);
+        }
+        walk_dir
             .into_iter()
             .filter_map(|entry| match entry {
                 Err(e) => {

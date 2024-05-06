@@ -76,15 +76,13 @@ fn format_file_name(expected_file: &str) -> Cow<str> {
 fn run(args: &[&str], expected_file: &str) -> Result<()> {
     let file = format_file_name(expected_file);
     let contents = fs::read_to_string(file.as_ref())?;
-    let mut expected: Vec<&str> =
-        contents.split('\n').filter(|s| !s.is_empty()).collect();
+    let mut expected: Vec<&str> = contents.split('\n').filter(|s| !s.is_empty()).collect();
     expected.sort();
 
     let cmd = Command::cargo_bin(PRG)?.args(args).assert().success();
     let out = cmd.get_output();
     let stdout = String::from_utf8(out.stdout.clone())?;
-    let mut lines: Vec<&str> =
-        stdout.split('\n').filter(|s| !s.is_empty()).collect();
+    let mut lines: Vec<&str> = stdout.split('\n').filter(|s| !s.is_empty()).collect();
     lines.sort();
 
     assert_eq!(lines, expected);
@@ -303,12 +301,74 @@ fn unreadable_dir() -> Result<()> {
 
     let out = cmd.get_output();
     let stdout = String::from_utf8(out.stdout.clone())?;
-    let lines: Vec<&str> =
-        stdout.split('\n').filter(|s| !s.is_empty()).collect();
+    let lines: Vec<&str> = stdout.split('\n').filter(|s| !s.is_empty()).collect();
 
     assert_eq!(lines.len(), 17);
 
     let stderr = String::from_utf8(out.stderr.clone())?;
     assert!(stderr.contains("cant-touch-this: Permission denied"));
     Ok(())
+}
+
+// --------------------------------------------------
+#[test]
+fn mindepth_0() -> Result<()> {
+    run(
+        &["tests/inputs", "--mindepth", "0"],
+        "tests/expected/mindepth_0.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn mindepth_2() -> Result<()> {
+    run(
+        &["tests/inputs", "--mindepth", "2"],
+        "tests/expected/mindepth_2.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn mindepth_5() -> Result<()> {
+    run(
+        &["tests/inputs", "--mindepth", "5"],
+        "tests/expected/mindepth_5.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn maxdepth_0() -> Result<()> {
+    run(
+        &["tests/inputs", "--maxdepth", "0"],
+        "tests/expected/maxdepth_0.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn maxdepth_2() -> Result<()> {
+    run(
+        &["tests/inputs", "--maxdepth", "2"],
+        "tests/expected/maxdepth_2.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn maxdepth_5() -> Result<()> {
+    run(
+        &["tests/inputs", "--maxdepth", "5"],
+        "tests/expected/maxdepth_5.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn mindepth_1_maxdepth_3() -> Result<()> {
+    run(
+        &["tests/inputs", "--mindepth", "1", "--maxdepth", "3"],
+        "tests/expected/mindepth_1_maxdepth_3.txt",
+    )
 }
