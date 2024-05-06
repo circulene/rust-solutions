@@ -33,16 +33,18 @@ fn open(filename: &str) -> Result<Box<dyn BufRead>> {
     }
 }
 
-fn format(show_count: bool, counter: usize, line: &str) -> String {
-    format!(
-        "{}{}",
-        if show_count {
-            format!("{counter:>4} ")
-        } else {
-            "".to_string()
-        },
-        line
-    )
+fn print_format(
+    out_file: &mut Box<dyn Write>,
+    show_count: bool,
+    counter: usize,
+    line: &str,
+) -> Result<()> {
+    if show_count {
+        out_file.write_fmt(format_args!("{counter:>4} {line}"))?
+    } else {
+        out_file.write_fmt(format_args!("{line}"))?
+    }
+    Ok(())
 }
 
 pub fn run(config: Config) -> Result<()> {
@@ -53,25 +55,27 @@ pub fn run(config: Config) -> Result<()> {
         _ => Box::new(io::stdout()),
     };
     let mut line = String::new();
-    let mut prev_line = None::<String>;
+    let mut prev_line = String::new();
     let mut counter: usize = 0;
     loop {
         let bytes = file.read_line(&mut line)?;
-        if let Some(prev_line) = prev_line {
-            if line != prev_line {
-                out_file.write_fmt(format_args!(
-                    "{}",
-                    format(config.count, counter, &prev_line)
-                ))?;
-                counter = 0;
-            }
-        }
         if bytes == 0 {
             break;
         }
+        if counter > 0 {
+            if line.trim_end() != prev_line.trim_end() {
+                print_format(&mut out_file, config.count, counter, &prev_line)?;
+                counter = 0;
+                prev_line = line.clone();
+            }
+        } else {
+            prev_line = line.clone();
+        }
         counter += 1;
-        prev_line = Some(line.clone());
         line.clear();
+    }
+    if counter > 0 {
+        print_format(&mut out_file, config.count, counter, &prev_line)?;
     }
     Ok(())
 }
