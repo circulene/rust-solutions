@@ -55,6 +55,16 @@ pub fn get_args() -> Result<Config> {
 }
 
 pub fn run(config: Config) -> Result<()> {
+    let walk_dir = |path: &String| {
+        let mut walk_dir = WalkDir::new(path);
+        if let Some(depth) = config.min_depth {
+            walk_dir = walk_dir.min_depth(depth);
+        }
+        if let Some(depth) = config.max_depth {
+            walk_dir = walk_dir.max_depth(depth);
+        }
+        walk_dir
+    };
     let name_filter = |entry: &DirEntry| {
         config.names.is_empty()
             || config
@@ -75,14 +85,7 @@ pub fn run(config: Config) -> Result<()> {
                 })
     };
     for path in config.paths {
-        let mut walk_dir = WalkDir::new(path);
-        if let Some(depth) = config.min_depth {
-            walk_dir = walk_dir.min_depth(depth);
-        }
-        if let Some(depth) = config.max_depth {
-            walk_dir = walk_dir.max_depth(depth);
-        }
-        walk_dir
+        walk_dir(&path)
             .into_iter()
             .filter_map(|entry| match entry {
                 Err(e) => {
