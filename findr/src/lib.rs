@@ -28,7 +28,7 @@ impl ValueEnum for EntryType {
 #[command(about = "Rust find", version)]
 pub struct Config {
     /// Search paths
-    #[arg(value_name = "PATH", default_value = "-")]
+    #[arg(value_name = "PATH", default_value = ".")]
     paths: Vec<String>,
 
     /// Name
