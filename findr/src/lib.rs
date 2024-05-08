@@ -39,7 +39,7 @@ enum CmpFlag {
 #[derive(Debug, Clone)]
 struct SizeType {
     size: u64,
-    is_block: bool,
+    blksize: u64,
     cmp_flag: CmpFlag,
 }
 
@@ -107,27 +107,27 @@ impl TypedValueParser for SizeTypeParser {
                 })
                 .transpose()?
                 .unwrap();
-            let raw_size = cap
+            let size = cap
                 .name("size")
                 .map(|m| m.as_str().parse::<u64>().unwrap())
                 .unwrap();
             let unit = cap.name("unit").map(|m| m.as_str()).unwrap();
-            let mut is_block = false;
-            let size = match unit {
-                "c" => Ok(raw_size),
-                "k" => Ok(raw_size * 1024),
-                "M" => Ok(raw_size * 1024 * 1024),
-                "G" => Ok(raw_size * 1024 * 1024 * 1024),
-                "T" => Ok(raw_size * 1024 * 1024 * 1024 * 1024),
-                "" => { is_block = true; Ok(raw_size) },
+            let blksize: u64 = match unit {
+                "b" => Ok(512),
+                "c" => Ok(1),
+                "k" => Ok(1024),
+                "M" => Ok(1024 * 1024),
+                "G" => Ok(1024 * 1024 * 1024),
+                "T" => Ok(1024 * 1024 * 1024 * 1024),
+                "" => Ok(512),
                 _ => Err(validation_error(Some(format!(
-                    "Unit '{unit}' is invalid. Possible values are any of 'c', 'k', 'M', 'G', 'T' or ''."
+                    "Unit '{unit}' is invalid. Possible values are any of 'b', 'c', 'k', 'M', 'G', 'T' or ''."
                 )))),
             }?;
             Ok(Self::Value {
                 cmp_flag,
                 size,
-                is_block,
+                blksize,
             })
         } else {
             Err(validation_error(None))
@@ -168,10 +168,7 @@ pub struct Config {
 }
 
 pub fn get_args() -> Result<Config> {
-    let mut config = Config::try_parse()?;
-    if config.size_type.is_some() {
-        config.entry_types = vec![EntryType::File];
-    }
+    let config = Config::try_parse()?;
     Ok(config)
 }
 
@@ -208,11 +205,18 @@ pub fn run(config: Config) -> Result<()> {
     let file_size_filter = |entry: &DirEntry| match &config.size_type {
         Some(size_type) => {
             let metadata = entry.metadata().unwrap();
-            let size = if size_type.is_block {
-                metadata.blocks()
-            } else {
-                metadata.size()
-            };
+            let size = metadata.size() / size_type.blksize
+                + if metadata.size() % size_type.blksize != 0 {
+                    1
+                } else {
+                    0
+                };
+            //            println!(
+            //                " ** {} request={} actual={}",
+            //                entry.path().display(),
+            //                size_type.size,
+            //                size
+            //            );
             match size_type.cmp_flag {
                 CmpFlag::Plus => size > size_type.size,
                 CmpFlag::Minus => size < size_type.size,
