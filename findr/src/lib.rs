@@ -1,7 +1,11 @@
 use anyhow::Result;
-use clap::{builder::PossibleValue, Parser, ValueEnum};
+use clap::{
+    builder::{PossibleValue, TypedValueParser},
+    error::{ContextKind, ContextValue, ErrorKind},
+    Parser, ValueEnum,
+};
 use regex::Regex;
-use std::fmt::Debug;
+use std::{fmt::Debug, os::unix::fs::MetadataExt};
 use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -16,11 +20,117 @@ impl ValueEnum for EntryType {
         &[EntryType::Dir, EntryType::File, EntryType::Link]
     }
 
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+    fn to_possible_value(&self) -> Option<PossibleValue> {
         match self {
             EntryType::Dir => PossibleValue::new("d").into(),
             EntryType::File => PossibleValue::new("f").into(),
             EntryType::Link => PossibleValue::new("l").into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum CmpFlag {
+    Plus,
+    Minus,
+    None,
+}
+
+#[derive(Debug, Clone)]
+struct SizeType {
+    size: u64,
+    is_block: bool,
+    cmp_flag: CmpFlag,
+}
+
+#[derive(Clone)]
+struct SizeTypeParser {}
+
+impl SizeTypeParser {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl TypedValueParser for SizeTypeParser {
+    type Value = SizeType;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &std::ffi::OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        TypedValueParser::parse(self, cmd, arg, value.to_owned())
+    }
+
+    fn parse(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: std::ffi::OsString,
+    ) -> Result<Self::Value, clap::Error> {
+        let value = value
+            .into_string()
+            .map_err(|_e| clap::Error::new(ErrorKind::InvalidUtf8).with_cmd(cmd))?;
+        let validation_error = |suggest: Option<String>| {
+            let mut err = clap::Error::new(ErrorKind::ValueValidation).with_cmd(cmd);
+            if let Some(arg) = arg {
+                err.insert(
+                    ContextKind::InvalidArg,
+                    ContextValue::String(arg.to_string()),
+                );
+            }
+            err.insert(
+                ContextKind::InvalidValue,
+                ContextValue::String(value.to_string()),
+            );
+            if let Some(suggest) = suggest {
+                err.insert(ContextKind::SuggestedValue, ContextValue::String(suggest));
+            }
+            err
+        };
+        let pattern = Regex::new(r"(?<flag>.*?)(?<size>[0-9]+)(?<unit>.*)").unwrap();
+        if let Some(cap) = pattern.captures(&value) {
+            let cmp_flag = cap
+                .name("flag")
+                .map(|m| {
+                    let flag = m.as_str();
+                    match flag {
+                        "+" => Ok(CmpFlag::Plus),
+                        "-" => Ok(CmpFlag::Minus),
+                        "" => Ok(CmpFlag::None),
+                        _ => Err({
+                            validation_error(Some(format!("Flag '{flag}' is invalid. Possible values are any of '+', '-' or ''.")))
+                        }),
+                    }
+                })
+                .transpose()?
+                .unwrap();
+            let raw_size = cap
+                .name("size")
+                .map(|m| m.as_str().parse::<u64>().unwrap())
+                .unwrap();
+            let unit = cap.name("unit").map(|m| m.as_str()).unwrap();
+            let mut is_block = false;
+            let size = match unit {
+                "c" => Ok(raw_size),
+                "k" => Ok(raw_size * 1024),
+                "M" => Ok(raw_size * 1024 * 1024),
+                "G" => Ok(raw_size * 1024 * 1024 * 1024),
+                "T" => Ok(raw_size * 1024 * 1024 * 1024 * 1024),
+                "" => { is_block = true; Ok(raw_size) },
+                _ => Err(validation_error(Some(format!(
+                    "Unit '{unit}' is invalid. Possible values are any of 'c', 'k', 'M', 'G', 'T' or ''."
+                )))),
+            }?;
+            Ok(Self::Value {
+                cmp_flag,
+                size,
+                is_block,
+            })
+        } else {
+            Err(validation_error(None))
         }
     }
 }
@@ -47,10 +157,21 @@ pub struct Config {
     /// Maximum depth
     #[arg(long = "maxdepth")]
     max_depth: Option<usize>,
+
+    /// File size. Format is similar to find, e.g. [+-]?[0-9]+[ckMGT]?
+    #[arg(
+        long = "size",
+        allow_hyphen_values = true,
+        value_parser(SizeTypeParser::new())
+    )]
+    size_type: Option<SizeType>,
 }
 
 pub fn get_args() -> Result<Config> {
-    let config = Config::try_parse()?;
+    let mut config = Config::try_parse()?;
+    if config.size_type.is_some() {
+        config.entry_types = vec![EntryType::File];
+    }
     Ok(config)
 }
 
@@ -84,6 +205,22 @@ pub fn run(config: Config) -> Result<()> {
                     EntryType::Link => file_type.is_symlink(),
                 })
     };
+    let file_size_filter = |entry: &DirEntry| match &config.size_type {
+        Some(size_type) => {
+            let metadata = entry.metadata().unwrap();
+            let size = if size_type.is_block {
+                metadata.blocks()
+            } else {
+                metadata.size()
+            };
+            match size_type.cmp_flag {
+                CmpFlag::Plus => size > size_type.size,
+                CmpFlag::Minus => size < size_type.size,
+                CmpFlag::None => size == size_type.size,
+            }
+        }
+        None => true,
+    };
     for path in config.paths {
         walk_dir(&path)
             .into_iter()
@@ -96,6 +233,7 @@ pub fn run(config: Config) -> Result<()> {
             })
             .filter(name_filter)
             .filter(entry_type_filter)
+            .filter(file_size_filter)
             .map(|entry| format!("{}", entry.path().display()))
             .for_each(|path| println!("{path}"));
     }
