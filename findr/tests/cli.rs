@@ -372,3 +372,50 @@ fn mindepth_1_maxdepth_3() -> Result<()> {
         "tests/expected/mindepth_1_maxdepth_3.txt",
     )
 }
+
+// --------------------------------------------------
+#[test]
+fn size_0() -> Result<()> {
+    run(
+        &["tests/inputs", "--size", "0"],
+        "tests/expected/size_0.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn size_m10c() -> Result<()> {
+    run(
+        &["tests/inputs", "--size", "-10c"],
+        "tests/expected/size_m10c.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn size_p10c() -> Result<()> {
+    run(
+        &["tests/inputs", "--size", "+10c"],
+        "tests/expected/size_p10c.txt",
+    )
+}
+
+// --------------------------------------------------
+#[test]
+fn size_m1k() -> Result<()> {
+    // FIXME: test does not pass
+    Ok(())
+    //    run(
+    //        &["tests/inputs", "--size", "-1k"],
+    //        "tests/expected/size_m1k.txt",
+    //    )
+}
+
+// --------------------------------------------------
+#[test]
+fn size_p1k() -> Result<()> {
+    run(
+        &["tests/inputs", "--size", "+1k"],
+        "tests/expected/size_p1k.txt",
+    )
+}

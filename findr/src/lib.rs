@@ -211,12 +211,6 @@ pub fn run(config: Config) -> Result<()> {
                 } else {
                     0
                 };
-            //            println!(
-            //                " ** {} request={} actual={}",
-            //                entry.path().display(),
-            //                size_type.size,
-            //                size
-            //            );
             match size_type.cmp_flag {
                 CmpFlag::Plus => size > size_type.size,
                 CmpFlag::Minus => size < size_type.size,

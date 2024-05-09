@@ -49,3 +49,9 @@ find "$IN_DIR" -maxdepth 2 > "$OUT_DIR/maxdepth_2.txt"
 find "$IN_DIR" -maxdepth 5 > "$OUT_DIR/maxdepth_5.txt"
 
 find "$IN_DIR" -mindepth 1 -maxdepth 3 > "$OUT_DIR/mindepth_1_maxdepth_3.txt"
+
+find "$IN_DIR" -size 0 > "$OUT_DIR/size_0.txt"
+find "$IN_DIR" -size -10c > "$OUT_DIR/size_m10c.txt"
+find "$IN_DIR" -size +10c > "$OUT_DIR/size_p10c.txt"
+find "$IN_DIR" -size -1k > "$OUT_DIR/size_m1k.txt"
+find "$IN_DIR" -size +1k > "$OUT_DIR/size_p1k.txt"
