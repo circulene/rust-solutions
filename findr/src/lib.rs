@@ -39,7 +39,6 @@ enum CmpFlag {
 #[derive(Debug, Clone)]
 struct SizeType {
     size: u64,
-    blksize: u64,
     cmp_flag: CmpFlag,
 }
 
@@ -107,7 +106,7 @@ impl TypedValueParser for SizeTypeParser {
                 })
                 .transpose()?
                 .unwrap();
-            let size = cap
+            let mut size = cap
                 .name("size")
                 .map(|m| m.as_str().parse::<u64>().unwrap())
                 .unwrap();
@@ -124,11 +123,8 @@ impl TypedValueParser for SizeTypeParser {
                     "Unit '{unit}' is invalid. Possible values are any of 'b', 'c', 'k', 'M', 'G', 'T' or ''."
                 )))),
             }?;
-            Ok(Self::Value {
-                cmp_flag,
-                size,
-                blksize,
-            })
+            size *= blksize;
+            Ok(Self::Value { cmp_flag, size })
         } else {
             Err(validation_error(None))
         }
@@ -205,12 +201,7 @@ pub fn run(config: Config) -> Result<()> {
     let file_size_filter = |entry: &DirEntry| match &config.size_type {
         Some(size_type) => {
             let metadata = entry.metadata().unwrap();
-            let size = metadata.size() / size_type.blksize
-                + if metadata.size() % size_type.blksize != 0 {
-                    1
-                } else {
-                    0
-                };
+            let size = metadata.size();
             match size_type.cmp_flag {
                 CmpFlag::Plus => size > size_type.size,
                 CmpFlag::Minus => size < size_type.size,
