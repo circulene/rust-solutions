@@ -403,12 +403,10 @@ fn size_p10c() -> Result<()> {
 // --------------------------------------------------
 #[test]
 fn size_m1k() -> Result<()> {
-    // FIXME: test does not pass
-    Ok(())
-    //    run(
-    //        &["tests/inputs", "--size", "-1k"],
-    //        "tests/expected/size_m1k.txt",
-    //    )
+    run(
+        &["tests/inputs", "--size", "-1k"],
+        "tests/expected/size_m1k.txt",
+    )
 }
 
 // --------------------------------------------------

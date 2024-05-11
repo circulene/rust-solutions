@@ -29,7 +29,7 @@ impl ValueEnum for EntryType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum CmpFlag {
     Plus,
     Minus,
@@ -128,6 +128,41 @@ impl TypedValueParser for SizeTypeParser {
         } else {
             Err(validation_error(None))
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::ffi;
+
+    macro_rules! test_parser {
+        ($value:expr, $flag:expr, $size:expr) => {
+            let result = create_parser($value);
+            assert_eq!(result.cmp_flag, $flag);
+            assert_eq!(result.size, $size);
+        };
+    }
+
+    fn create_parser(value: &str) -> SizeType {
+        let parser = SizeTypeParser::new();
+        let cmd = clap::Command::new("test");
+        let arg = clap::Arg::new("size");
+        let value = ffi::OsStr::new(value);
+        parser.parse_ref(&cmd, Some(&arg), value).unwrap()
+    }
+
+    #[test]
+    fn test_parser() {
+        test_parser!("50", CmpFlag::None, 50 * 512);
+        test_parser!("50b", CmpFlag::None, 50 * 512);
+        test_parser!("100c", CmpFlag::None, 100);
+        test_parser!("+1k", CmpFlag::Plus, 1024);
+        test_parser!("-1k", CmpFlag::Minus, 1024);
+        test_parser!("+10M", CmpFlag::Plus, 10 * 1024 * 1024);
+        test_parser!("-10M", CmpFlag::Minus, 10 * 1024 * 1024);
+        test_parser!("+2G", CmpFlag::Plus, 2 * 1024 * 1024 * 1024);
+        test_parser!("-2G", CmpFlag::Minus, 2 * 1024 * 1024 * 1024);
     }
 }
 
