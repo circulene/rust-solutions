@@ -32,13 +32,7 @@ impl EntryCounter {
     }
 }
 
-fn display_entry(path: &Path, depth: u32, is_last: bool) -> Result<()> {
-    if depth > 1 {
-        print!("│   ");
-        for _ in 1..depth - 1 {
-            print!("    ");
-        }
-    }
+fn display_entry(path: &Path, prefix: &str, is_last: bool) -> Result<()> {
     let mut entry_name = path.file_name().unwrap().to_string_lossy();
     if path.is_symlink() {
         entry_name
@@ -46,14 +40,14 @@ fn display_entry(path: &Path, depth: u32, is_last: bool) -> Result<()> {
             .push_str(format!(" -> {}", path.read_link()?.display()).as_str());
     }
     if !is_last {
-        println!("├── {}", entry_name);
+        println!("{}├── {}", prefix, entry_name);
     } else {
-        println!("└── {}", entry_name);
+        println!("{}└── {}", prefix, entry_name);
     }
     Ok(())
 }
 
-fn walk_dir(root: &Path, depth: u32) -> Result<EntryCounter> {
+fn walk_dir(root: &Path, prefix: &str) -> Result<EntryCounter> {
     let mut entries = root
         .read_dir()?
         .filter_map(|res| res.ok())
@@ -64,10 +58,12 @@ fn walk_dir(root: &Path, depth: u32) -> Result<EntryCounter> {
 
     for (i, entry) in entries.iter().enumerate() {
         let is_last = i == entries.len() - 1;
-        display_entry(entry.as_path(), depth + 1, is_last)?;
+        display_entry(entry.as_path(), prefix, is_last)?;
         counter.inc(entry.as_path());
         if entry.is_dir() {
-            let sub_counter = walk_dir(entry.as_path(), depth + 1)?;
+            let mut new_prefix = prefix.to_string();
+            new_prefix.push_str(if is_last { "    " } else { "│   " });
+            let sub_counter = walk_dir(entry.as_path(), new_prefix.as_str())?;
             counter.sum(&sub_counter);
         }
     }
@@ -80,7 +76,7 @@ fn main() {
 
     println!("{}", &config.path);
     let root = Path::new(&config.path);
-    match walk_dir(root, 0) {
+    match walk_dir(root, "") {
         Err(err) => eprintln!("{err}"),
         Ok(mut counter) => {
             counter.inc(root);
