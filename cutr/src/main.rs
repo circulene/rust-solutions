@@ -1,11 +1,7 @@
 use crate::Extract::*;
-use clap::{
-    builder::TypedValueParser,
-    error::{ContextKind, ContextValue, ErrorKind},
-    value_parser, Parser,
-};
+use clap::{builder::TypedValueParser, error::ErrorKind, Parser};
 use regex::{Captures, RegexBuilder};
-use std::{error::Error, ops::Range, os::unix::ffi::OsStrExt};
+use std::{iter::Product, ops::Range, os::unix::ffi::OsStrExt};
 
 #[derive(Clone)]
 struct ByteParser {}
@@ -67,14 +63,15 @@ impl TypedValueParser for PositionListParser {
 
 fn parse_pos(value: &str) -> Result<PositionList, String> {
     let re = RegexBuilder::new(r"^(\d+)(-(\d+))?$").build().unwrap();
-    let captured = |cap: &Captures, i| cap.get(i).map(|m| m.as_str().parse::<usize>().unwrap());
     let mut result = Vec::new();
 
     for range_str in value.split(',') {
-        let Some(cap) = re.captures(range_str) else {
-            return Err(format!("illegal list value: \"{range_str}\""));
-        };
-        let range = match (captured(&cap, 1), captured(&cap, 3)) {
+        let cap = re
+            .captures(range_str)
+            .ok_or(format!("illegal list value: \"{range_str}\""))?;
+        let start = cap.get(1).map(|m| m.as_str().parse::<usize>().unwrap());
+        let end = cap.get(3).map(|m| m.as_str().parse::<usize>().unwrap());
+        let range = match (start, end) {
             (Some(start), Some(end)) => {
                 if start < end {
                     if start > 0 {
@@ -96,8 +93,8 @@ fn parse_pos(value: &str) -> Result<PositionList, String> {
                 }
             }
             (_, _) => Err(format!("illegal list value: \"{range_str}\"")),
-        };
-        result.push(range?);
+        }?;
+        result.push(range);
     }
 
     Ok(result)
