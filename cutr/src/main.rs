@@ -2,10 +2,40 @@ use crate::Extract::*;
 use clap::{
     builder::TypedValueParser,
     error::{ContextKind, ContextValue, ErrorKind},
-    Parser,
+    value_parser, Parser,
 };
 use regex::{Captures, RegexBuilder};
-use std::ops::Range;
+use std::{error::Error, ops::Range, os::unix::ffi::OsStrExt};
+
+#[derive(Clone)]
+struct ByteParser {}
+
+impl ByteParser {
+    fn new() -> ByteParser {
+        ByteParser {}
+    }
+}
+
+impl TypedValueParser for ByteParser {
+    type Value = u8;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &std::ffi::OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        let bytes = value.as_bytes().to_owned();
+        bytes.first().map(|x| x.to_owned()).ok_or_else(|| {
+            let message = format!(
+                "invalid byte '{}' for {}",
+                value.to_string_lossy(),
+                arg.map(|a| a.to_string()).unwrap()
+            );
+            clap::Error::raw(ErrorKind::ValueValidation, format!("{message}\n"))
+        })
+    }
+}
 
 type PositionList = Vec<Range<usize>>;
 
@@ -29,14 +59,8 @@ impl TypedValueParser for PositionListParser {
     ) -> Result<Self::Value, clap::Error> {
         let value = value.to_string_lossy();
         parse_pos(&value).map_err(|message| {
-            let mut err = clap::Error::raw(ErrorKind::InvalidValue, message).with_cmd(cmd);
-            if let Some(arg) = arg {
-                err.insert(
-                    ContextKind::InvalidArg,
-                    ContextValue::String(arg.to_string()),
-                );
-            }
-            err
+            let message = format!("{} for {}", message, arg.map(|a| a.to_string()).unwrap());
+            clap::Error::raw(ErrorKind::ValueValidation, format!("{message}\n"))
         })
     }
 }
@@ -52,10 +76,12 @@ fn parse_pos(value: &str) -> Result<PositionList, String> {
         };
         let range = match (captured(&cap, 1), captured(&cap, 3)) {
             (Some(start), Some(end)) => {
-                if start == 0 {
-                    Err(format!("illegal list value: \"{start}\""))
-                } else if start < end {
-                    Ok(start - 1..end)
+                if start < end {
+                    if start > 0 {
+                        Ok(start - 1..end)
+                    } else {
+                        Err(format!("illegal list value: \"{start}\""))
+                    }
                 } else {
                     Err(format!(
                         "First number in range ({start}) must be lower than second number ({end})"
@@ -63,10 +89,10 @@ fn parse_pos(value: &str) -> Result<PositionList, String> {
                 }
             }
             (Some(end), None) => {
-                if end == 0 {
-                    Err(format!("illegal list value: \"{end}\""))
-                } else {
+                if end > 0 {
                     Ok(end - 1..end)
+                } else {
+                    Err(format!("illegal list value: \"{end}\""))
                 }
             }
             (_, _) => Err(format!("illegal list value: \"{range_str}\"")),
@@ -193,7 +219,8 @@ struct Args {
         long = "delimiter",
         value_name = "DELIMITER",
         default_value = " ",
-        help = "Field delimiter"
+        help = "Field delimiter",
+        value_parser(ByteParser::new())
     )]
     delimiter: u8,
 
@@ -202,7 +229,8 @@ struct Args {
         long = "fields",
         value_name = "FIELDS",
         help = "Selected fields",
-        value_parser = PositionListParser::new()
+        value_parser(PositionListParser::new()),
+        conflicts_with_all(["bytes", "chars"]),
     )]
     fields: Option<PositionList>,
 
@@ -211,7 +239,8 @@ struct Args {
         long = "bytes",
         value_name = "BYTES",
         help = "Selected bytes",
-        value_parser = PositionListParser::new()
+        value_parser(PositionListParser::new()),
+        conflicts_with_all(["fields", "chars"]),
     )]
     bytes: Option<PositionList>,
 
@@ -220,22 +249,19 @@ struct Args {
         long = "chars",
         value_name = "CHARS",
         help = "Selected characters",
-        value_parser = PositionListParser::new()
+        value_parser(PositionListParser::new()),
+        conflicts_with_all(["fields", "bytes"]),
     )]
     chars: Option<PositionList>,
 }
 
 impl Args {
     fn get_extract(&self) -> Option<Extract> {
-        if let Some(fields) = &self.fields {
-            Some(Fields(fields.to_vec()))
-        } else if let Some(bytes) = &self.bytes {
-            Some(Bytes(bytes.to_vec()))
-        } else if let Some(chars) = &self.chars {
-            Some(Chars(chars.to_vec()))
-        } else {
-            None
-        }
+        self.fields
+            .as_ref()
+            .map(|opt| Fields(opt.to_owned()))
+            .or(self.bytes.as_ref().map(|opt| Bytes(opt.to_owned())))
+            .or(self.chars.as_ref().map(|opt| Chars(opt.to_owned())))
     }
 }
 
@@ -246,18 +272,7 @@ enum Extract {
     Chars(PositionList),
 }
 
-struct Config {
-    files: Vec<String>,
-    delimiter: u8,
-    extract: Option<Extract>,
-}
-
 fn main() {
     let args = Args::parse();
-    let extract = args.get_extract();
-    let config = Config {
-        files: args.files,
-        delimiter: args.delimiter,
-        extract: None,
-    };
+    dbg!(args);
 }
