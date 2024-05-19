@@ -58,7 +58,7 @@ fn dies_not_enough_args() -> Result<()> {
     dies(
         &[CSV],
         "the following required arguments were not provided:\n  \
-        <--fields <FIELDS>|--bytes <BYTES>|--chars <CHARS>>",
+        --fields <FIELDS>\n  --bytes <BYTES>\n  --chars <CHARS>",
     )
 }
 

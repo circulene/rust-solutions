@@ -1,7 +1,7 @@
 use crate::Extract::*;
 use clap::{builder::TypedValueParser, error::ErrorKind, Parser};
-use regex::{Captures, RegexBuilder};
-use std::{iter::Product, ops::Range, os::unix::ffi::OsStrExt};
+use regex::RegexBuilder;
+use std::{io::Read, ops::Range, os::unix::ffi::OsStrExt};
 
 #[derive(Clone)]
 struct ByteParser {}
@@ -22,13 +22,26 @@ impl TypedValueParser for ByteParser {
         value: &std::ffi::OsStr,
     ) -> Result<Self::Value, clap::Error> {
         let bytes = value.as_bytes().to_owned();
-        bytes.first().map(|x| x.to_owned()).ok_or_else(|| {
-            let message = format!(
-                "invalid byte '{}' for {}",
-                value.to_string_lossy(),
-                arg.map(|a| a.to_string()).unwrap()
+        if bytes.is_empty() || bytes.len() > 1 {
+            let err = clap::Error::raw(
+                ErrorKind::ValueValidation,
+                format!(
+                    "--{} \"{}\" must be a single byte\n",
+                    arg.unwrap().get_long().unwrap(),
+                    value.to_string_lossy()
+                ),
             );
-            clap::Error::raw(ErrorKind::ValueValidation, format!("{message}\n"))
+            return Err(err);
+        }
+        bytes.first().map(|x| x.to_owned()).ok_or_else(|| {
+            clap::Error::raw(
+                ErrorKind::ValueValidation,
+                format!(
+                    "--{} \"{}\" must be a single byte\n",
+                    arg.unwrap().get_long().unwrap(),
+                    value.to_string_lossy()
+                ),
+            )
         })
     }
 }
@@ -213,7 +226,7 @@ struct Args {
 
     #[arg(
         short = 'd',
-        long = "delimiter",
+        long = "delim",
         value_name = "DELIMITER",
         default_value = " ",
         help = "Field delimiter",
@@ -227,6 +240,7 @@ struct Args {
         value_name = "FIELDS",
         help = "Selected fields",
         value_parser(PositionListParser::new()),
+        required(true),
         conflicts_with_all(["bytes", "chars"]),
     )]
     fields: Option<PositionList>,
@@ -237,6 +251,7 @@ struct Args {
         value_name = "BYTES",
         help = "Selected bytes",
         value_parser(PositionListParser::new()),
+        required(true),
         conflicts_with_all(["fields", "chars"]),
     )]
     bytes: Option<PositionList>,
@@ -247,6 +262,7 @@ struct Args {
         value_name = "CHARS",
         help = "Selected characters",
         value_parser(PositionListParser::new()),
+        required(true),
         conflicts_with_all(["fields", "bytes"]),
     )]
     chars: Option<PositionList>,
