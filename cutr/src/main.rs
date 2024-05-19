@@ -1,7 +1,8 @@
 use crate::Extract::*;
+use anyhow::{Error, Result};
 use clap::{builder::TypedValueParser, error::ErrorKind, Parser};
 use regex::RegexBuilder;
-use std::{io::Read, num::NonZeroUsize, ops::Range, os::unix::ffi::OsStrExt};
+use std::{num::NonZeroUsize, ops::Range, os::unix::ffi::OsStrExt};
 
 #[derive(Clone)]
 struct ByteParser {}
@@ -22,7 +23,7 @@ impl TypedValueParser for ByteParser {
         value: &std::ffi::OsStr,
     ) -> Result<Self::Value, clap::Error> {
         let bytes = value.as_bytes().to_owned();
-        if bytes.is_empty() || bytes.len() > 1 {
+        if bytes.len() != 1 {
             let err = clap::Error::raw(
                 ErrorKind::ValueValidation,
                 format!(
@@ -33,16 +34,7 @@ impl TypedValueParser for ByteParser {
             );
             return Err(err);
         }
-        bytes.first().map(|x| x.to_owned()).ok_or_else(|| {
-            clap::Error::raw(
-                ErrorKind::ValueValidation,
-                format!(
-                    "--{} \"{}\" must be a single byte\n",
-                    arg.unwrap().get_long().unwrap(),
-                    value.to_string_lossy()
-                ),
-            )
-        })
+        Ok(bytes.first().unwrap().to_owned())
     }
 }
 
@@ -74,8 +66,8 @@ impl TypedValueParser for PositionListParser {
     }
 }
 
-fn parse_index(value: &str) -> Result<usize, String> {
-    let value_error = || format!("illegal list value: \"{value}\"");
+fn parse_index(value: &str) -> Result<usize> {
+    let value_error = || Error::msg(format!("illegal list value: \"{value}\""));
     value
         .starts_with('+')
         .then(|| Err(value_error()))
@@ -87,7 +79,7 @@ fn parse_index(value: &str) -> Result<usize, String> {
         })
 }
 
-fn parse_pos(value: &str) -> Result<PositionList, String> {
+fn parse_pos(value: &str) -> Result<PositionList> {
     let re = RegexBuilder::new(r"^(\d+)-(\d+)$").build().unwrap();
     value
         .split(',')
@@ -99,14 +91,15 @@ fn parse_pos(value: &str) -> Result<PositionList, String> {
                     if start < end {
                         Ok(start - 1..end)
                     } else {
-                        Err(format!(
+                        Err(Error::msg(format!(
                         "First number in range ({start}) must be lower than second number ({end})"
-                    ))
+                    )))
                     }
                 })
             })
         })
-        .collect()
+        .collect::<Result<_, _>>()
+        .map_err(From::from)
 }
 
 /// my first trial ... the logic is so ugly that i don't want to keep it anymore...
@@ -159,35 +152,35 @@ mod test {
 
         let res = parse_pos("0");
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "illegal list value: \"0\"");
+        assert_eq!(res.unwrap_err().to_string(), "illegal list value: \"0\"");
 
         let res = parse_pos("0-1");
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "illegal list value: \"0\"");
+        assert_eq!(res.unwrap_err().to_string(), "illegal list value: \"0\"");
 
         let res = parse_pos("+1");
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "illegal list value: \"+1\"");
+        assert_eq!(res.unwrap_err().to_string(), "illegal list value: \"+1\"");
 
         let res = parse_pos("+1-2");
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "illegal list value: \"+1-2\"");
+        assert_eq!(res.unwrap_err().to_string(), "illegal list value: \"+1-2\"");
 
         let res = parse_pos("1-+2");
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "illegal list value: \"1-+2\"");
+        assert_eq!(res.unwrap_err().to_string(), "illegal list value: \"1-+2\"");
 
         let res = parse_pos("1,a");
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "illegal list value: \"a\"");
+        assert_eq!(res.unwrap_err().to_string(), "illegal list value: \"a\"");
 
         let res = parse_pos("1-a");
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "illegal list value: \"1-a\"");
+        assert_eq!(res.unwrap_err().to_string(), "illegal list value: \"1-a\"");
 
         let res = parse_pos("a-1");
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "illegal list value: \"a-1\"");
+        assert_eq!(res.unwrap_err().to_string(), "illegal list value: \"a-1\"");
 
         let res = parse_pos("-");
         assert!(res.is_err());
@@ -210,14 +203,14 @@ mod test {
         let res = parse_pos("1-1");
         assert!(res.is_err());
         assert_eq!(
-            res.unwrap_err(),
+            res.unwrap_err().to_string(),
             "First number in range (1) must be lower than second number (1)"
         );
 
         let res = parse_pos("2-1");
         assert!(res.is_err());
         assert_eq!(
-            res.unwrap_err(),
+            res.unwrap_err().to_string(),
             "First number in range (2) must be lower than second number (1)"
         );
 
