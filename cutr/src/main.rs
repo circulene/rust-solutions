@@ -1,7 +1,7 @@
 use crate::Extract::*;
 use clap::{builder::TypedValueParser, error::ErrorKind, Parser};
 use regex::RegexBuilder;
-use std::{io::Read, ops::Range, os::unix::ffi::OsStrExt};
+use std::{io::Read, num::NonZeroUsize, ops::Range, os::unix::ffi::OsStrExt};
 
 #[derive(Clone)]
 struct ByteParser {}
@@ -74,10 +74,45 @@ impl TypedValueParser for PositionListParser {
     }
 }
 
+fn parse_index(value: &str) -> Result<usize, String> {
+    let value_error = || format!("illegal list value: \"{value}\"");
+    value
+        .starts_with('+')
+        .then(|| Err(value_error()))
+        .unwrap_or_else(|| {
+            value
+                .parse::<NonZeroUsize>()
+                .map(|val| val.get())
+                .map_err(|_| value_error())
+        })
+}
+
 fn parse_pos(value: &str) -> Result<PositionList, String> {
+    let re = RegexBuilder::new(r"^(\d+)-(\d+)$").build().unwrap();
+    value
+        .split(',')
+        .map(|val| {
+            parse_index(val).map(|n| n - 1..n).or_else(|err| {
+                re.captures(val).ok_or(err).and_then(|cap| {
+                    let start = parse_index(&cap[1])?;
+                    let end = parse_index(&cap[2])?;
+                    if start < end {
+                        Ok(start - 1..end)
+                    } else {
+                        Err(format!(
+                        "First number in range ({start}) must be lower than second number ({end})"
+                    ))
+                    }
+                })
+            })
+        })
+        .collect()
+}
+
+/// my first trial ... the logic is so ugly that i don't want to keep it anymore...
+fn parse_pos_2(value: &str) -> Result<PositionList, String> {
     let re = RegexBuilder::new(r"^(\d+)(-(\d+))?$").build().unwrap();
     let mut result = Vec::new();
-
     for range_str in value.split(',') {
         let cap = re
             .captures(range_str)
