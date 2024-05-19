@@ -246,15 +246,27 @@ fn extract_bytes(line: &str, char_pos: &[Range<usize>]) -> String {
     String::from_utf8_lossy(&extracted_bytes).to_string()
 }
 
+fn extract_fields(line: &str, delim: u8, char_pos: &[Range<usize>]) -> String {
+    char_pos
+        .iter()
+        .flat_map(|range| {
+            range
+                .clone()
+                .filter_map(|index| line.split(delim as char).nth(index))
+        })
+        .collect::<Vec<&str>>()
+        .join(&String::from(delim as char))
+}
+
 fn main() {
     let args = Args::parse();
     for filename in &args.files {
         match open(filename) {
             Err(err) => eprintln!("{filename}: {err}"),
             Ok(reader) => {
-                for record in reader.lines() {
-                    let Ok(record) = record else {
-                        eprintln!("{}: {}", filename, record.unwrap_err());
+                for line in reader.lines() {
+                    let Ok(line) = line else {
+                        eprintln!("{}: {}", filename, line.unwrap_err());
                         break;
                     };
                     let Some(extract) = args.get_extract() else {
@@ -264,12 +276,14 @@ fn main() {
                         "{}",
                         match extract {
                             Bytes(pos) => {
-                                extract_bytes(&record, &pos)
+                                extract_bytes(&line, &pos)
                             }
                             Chars(pos) => {
-                                extract_chars(&record, &pos)
+                                extract_chars(&line, &pos)
                             }
-                            Fields(_) => todo!(),
+                            Fields(pos) => {
+                                extract_fields(&line, args.delimiter, &pos)
+                            }
                         }
                     );
                 }
