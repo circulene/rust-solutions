@@ -2,7 +2,13 @@ use crate::Extract::*;
 use anyhow::{Error, Result};
 use clap::{builder::TypedValueParser, error::ErrorKind, Parser};
 use regex::RegexBuilder;
-use std::{num::NonZeroUsize, ops::Range, os::unix::ffi::OsStrExt};
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader},
+    num::NonZeroUsize,
+    ops::Range,
+    os::unix::ffi::OsStrExt,
+};
 
 #[derive(Clone)]
 struct ByteParser {}
@@ -18,7 +24,7 @@ impl TypedValueParser for ByteParser {
 
     fn parse_ref(
         &self,
-        cmd: &clap::Command,
+        _: &clap::Command,
         arg: Option<&clap::Arg>,
         value: &std::ffi::OsStr,
     ) -> Result<Self::Value, clap::Error> {
@@ -54,7 +60,7 @@ impl TypedValueParser for PositionListParser {
 
     fn parse_ref(
         &self,
-        cmd: &clap::Command,
+        _: &clap::Command,
         arg: Option<&clap::Arg>,
         value: &std::ffi::OsStr,
     ) -> Result<Self::Value, clap::Error> {
@@ -141,12 +147,143 @@ fn parse_pos_2(value: &str) -> Result<PositionList, String> {
     Ok(result)
 }
 
+#[derive(Parser, Debug)]
+#[command(about = "Rust cut", version)]
+struct Args {
+    #[arg(value_name = "FILE")]
+    files: Vec<String>,
+
+    #[arg(
+        short = 'd',
+        long = "delim",
+        value_name = "DELIMITER",
+        default_value = "\t",
+        help = "Field delimiter",
+        value_parser(ByteParser::new())
+    )]
+    delimiter: u8,
+
+    #[arg(
+        short = 'f',
+        long = "fields",
+        value_name = "FIELDS",
+        help = "Selected fields",
+        value_parser(PositionListParser::new()),
+        required(true),
+        conflicts_with_all(["bytes", "chars"]),
+    )]
+    fields: Option<PositionList>,
+
+    #[arg(
+        short = 'b',
+        long = "bytes",
+        value_name = "BYTES",
+        help = "Selected bytes",
+        value_parser(PositionListParser::new()),
+        required(true),
+        conflicts_with_all(["fields", "chars"]),
+    )]
+    bytes: Option<PositionList>,
+
+    #[arg(
+        short = 'c',
+        long = "chars",
+        value_name = "CHARS",
+        help = "Selected characters",
+        value_parser(PositionListParser::new()),
+        required(true),
+        conflicts_with_all(["fields", "bytes"]),
+    )]
+    chars: Option<PositionList>,
+}
+
+impl Args {
+    fn get_extract(&self) -> Option<Extract> {
+        self.fields
+            .as_ref()
+            .map(|opt| Fields(opt.to_owned()))
+            .or(self.bytes.as_ref().map(|opt| Bytes(opt.to_owned())))
+            .or(self.chars.as_ref().map(|opt| Chars(opt.to_owned())))
+    }
+}
+
+#[derive(Clone, Debug)]
+enum Extract {
+    Fields(PositionList),
+    Bytes(PositionList),
+    Chars(PositionList),
+}
+
+fn open(filename: &str) -> Result<Box<dyn BufRead>> {
+    match filename {
+        "-" => Ok(Box::new(BufReader::new(io::stdin()))),
+        _ => Ok(Box::new(BufReader::new(File::open(filename)?))),
+    }
+}
+
+fn extract_chars(line: &str, char_pos: &[Range<usize>]) -> String {
+    char_pos
+        .iter()
+        .flat_map(|range| {
+            range
+                .clone()
+                .filter_map(|index| line.chars().nth(index))
+                .collect::<Vec<char>>()
+        })
+        .collect()
+}
+
+fn extract_bytes(line: &str, char_pos: &[Range<usize>]) -> String {
+    let extracted_bytes = char_pos
+        .iter()
+        .flat_map(|range| {
+            range
+                .clone()
+                .filter_map(|index| line.as_bytes().get(index).copied())
+                .collect::<Vec<u8>>()
+        })
+        .collect::<Vec<u8>>();
+    String::from_utf8_lossy(&extracted_bytes).to_string()
+}
+
+fn main() {
+    let args = Args::parse();
+    for filename in &args.files {
+        match open(filename) {
+            Err(err) => eprintln!("{filename}: {err}"),
+            Ok(reader) => {
+                for record in reader.lines() {
+                    let Ok(record) = record else {
+                        eprintln!("{}: {}", filename, record.unwrap_err());
+                        break;
+                    };
+                    let Some(extract) = args.get_extract() else {
+                        break;
+                    };
+                    println!(
+                        "{}",
+                        match extract {
+                            Bytes(pos) => {
+                                extract_bytes(&record, &pos)
+                            }
+                            Chars(pos) => {
+                                extract_chars(&record, &pos)
+                            }
+                            Fields(_) => todo!(),
+                        }
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
-mod test {
+mod unit_tests {
     use super::*;
 
     #[test]
-    fn test_parser() {
+    fn test_parser_pos() {
         let res = parse_pos("");
         assert!(res.is_err());
 
@@ -244,76 +381,24 @@ mod test {
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), vec![14..15, 18..20]);
     }
-}
 
-#[derive(Parser, Debug)]
-#[command(about = "Rust cut", version)]
-struct Args {
-    #[arg(value_name = "FILE")]
-    files: Vec<String>,
-
-    #[arg(
-        short = 'd',
-        long = "delim",
-        value_name = "DELIMITER",
-        default_value = " ",
-        help = "Field delimiter",
-        value_parser(ByteParser::new())
-    )]
-    delimiter: u8,
-
-    #[arg(
-        short = 'f',
-        long = "fields",
-        value_name = "FIELDS",
-        help = "Selected fields",
-        value_parser(PositionListParser::new()),
-        required(true),
-        conflicts_with_all(["bytes", "chars"]),
-    )]
-    fields: Option<PositionList>,
-
-    #[arg(
-        short = 'b',
-        long = "bytes",
-        value_name = "BYTES",
-        help = "Selected bytes",
-        value_parser(PositionListParser::new()),
-        required(true),
-        conflicts_with_all(["fields", "chars"]),
-    )]
-    bytes: Option<PositionList>,
-
-    #[arg(
-        short = 'c',
-        long = "chars",
-        value_name = "CHARS",
-        help = "Selected characters",
-        value_parser(PositionListParser::new()),
-        required(true),
-        conflicts_with_all(["fields", "bytes"]),
-    )]
-    chars: Option<PositionList>,
-}
-
-impl Args {
-    fn get_extract(&self) -> Option<Extract> {
-        self.fields
-            .as_ref()
-            .map(|opt| Fields(opt.to_owned()))
-            .or(self.bytes.as_ref().map(|opt| Bytes(opt.to_owned())))
-            .or(self.chars.as_ref().map(|opt| Chars(opt.to_owned())))
+    #[test]
+    fn test_extract_chars() {
+        assert_eq!(extract_chars("", &[0..1]), "".to_string());
+        assert_eq!(extract_chars("ábc", &[0..1]), "á".to_string());
+        assert_eq!(extract_chars("ábc", &[0..1, 2..3]), "ác".to_string());
+        assert_eq!(extract_chars("ábc", &[0..3]), "ábc".to_string());
+        assert_eq!(extract_chars("ábc", &[2..3, 1..2]), "cb".to_string());
+        assert_eq!(extract_chars("ábc", &[0..1, 1..2, 4..5]), "áb".to_string());
     }
-}
 
-#[derive(Clone, Debug)]
-enum Extract {
-    Fields(PositionList),
-    Bytes(PositionList),
-    Chars(PositionList),
-}
-
-fn main() {
-    let args = Args::parse();
-    dbg!(args);
+    #[test]
+    fn test_extract_bytes() {
+        assert_eq!(extract_bytes("ábc", &[0..1]), "�".to_string());
+        assert_eq!(extract_bytes("ábc", &[0..2]), "á".to_string());
+        assert_eq!(extract_bytes("ábc", &[0..3]), "áb".to_string());
+        assert_eq!(extract_bytes("ábc", &[0..4]), "ábc".to_string());
+        assert_eq!(extract_bytes("ábc", &[3..4, 2..3]), "cb".to_string());
+        assert_eq!(extract_bytes("ábc", &[0..2, 5..6]), "á".to_string());
+    }
 }
