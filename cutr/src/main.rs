@@ -6,7 +6,7 @@ use std::{
     fs::File,
     io::{self, BufRead, BufReader},
     num::NonZeroUsize,
-    ops::Range,
+    ops::{Range, RangeFrom, RangeTo},
     os::unix::ffi::OsStrExt,
 };
 
@@ -44,7 +44,14 @@ impl TypedValueParser for ByteParser {
     }
 }
 
-type PositionList = Vec<Range<usize>>;
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum AnyRange<T> {
+    From(RangeFrom<T>),
+    To(RangeTo<T>),
+    Range(Range<T>),
+}
+
+type PositionList = Vec<AnyRange<usize>>;
 
 #[derive(Clone)]
 struct PositionListParser {}
@@ -86,65 +93,42 @@ fn parse_index(value: &str) -> Result<usize> {
 }
 
 fn parse_pos(value: &str) -> Result<PositionList> {
-    let re = RegexBuilder::new(r"^(\d+)-(\d+)$").build().unwrap();
+    let from_re = RegexBuilder::new(r"^(\d+)-$").build().unwrap();
+    let to_re = RegexBuilder::new(r"^-(\d+)$").build().unwrap();
+    let range_re = RegexBuilder::new(r"^(\d+)-(\d+)$").build().unwrap();
     value
         .split(',')
         .map(|val| {
-            parse_index(val).map(|n| n - 1..n).or_else(|err| {
-                re.captures(val).ok_or(err).and_then(|cap| {
-                    let start = parse_index(&cap[1])?;
-                    let end = parse_index(&cap[2])?;
-                    if start < end {
-                        Ok(start - 1..end)
-                    } else {
-                        Err(Error::msg(format!(
-                        "First number in range ({start}) must be lower than second number ({end})"
-                    )))
-                    }
+            parse_index(val)
+                .map(|n| AnyRange::Range(n - 1..n))
+                .or_else(|err| {
+                    from_re.captures(val).ok_or(err).and_then(|cap| {
+                        let start = parse_index(&cap[1])?;
+                        Ok(AnyRange::From(start - 1..))
+                    })
                 })
-            })
+                .or_else(|err| {
+                    to_re.captures(val).ok_or(err).and_then(|cap| {
+                        let end = parse_index(&cap[1])?;
+                        Ok(AnyRange::To(..end))
+                    })
+                })
+                .or_else(|err| {
+                    range_re.captures(val).ok_or(err).and_then(|cap| {
+                        let start = parse_index(&cap[1])?;
+                        let end = parse_index(&cap[2])?;
+                        if start < end {
+                            Ok(AnyRange::Range(start - 1..end))
+                        } else {
+                            Err(Error::msg(
+                                format!("First number in range ({start}) must be lower than second number ({end})"),
+                            ))
+                        }
+                    })
+                })
         })
         .collect::<Result<_, _>>()
         .map_err(From::from)
-}
-
-/// my first trial ... the logic is so ugly that i don't want to keep it anymore...
-fn parse_pos_2(value: &str) -> Result<PositionList, String> {
-    let re = RegexBuilder::new(r"^(\d+)(-(\d+))?$").build().unwrap();
-    let mut result = Vec::new();
-    for range_str in value.split(',') {
-        let cap = re
-            .captures(range_str)
-            .ok_or(format!("illegal list value: \"{range_str}\""))?;
-        let start = cap.get(1).map(|m| m.as_str().parse::<usize>().unwrap());
-        let end = cap.get(3).map(|m| m.as_str().parse::<usize>().unwrap());
-        let range = match (start, end) {
-            (Some(start), Some(end)) => {
-                if start < end {
-                    if start > 0 {
-                        Ok(start - 1..end)
-                    } else {
-                        Err(format!("illegal list value: \"{start}\""))
-                    }
-                } else {
-                    Err(format!(
-                        "First number in range ({start}) must be lower than second number ({end})"
-                    ))
-                }
-            }
-            (Some(end), None) => {
-                if end > 0 {
-                    Ok(end - 1..end)
-                } else {
-                    Err(format!("illegal list value: \"{end}\""))
-                }
-            }
-            (_, _) => Err(format!("illegal list value: \"{range_str}\"")),
-        }?;
-        result.push(range);
-    }
-
-    Ok(result)
 }
 
 #[derive(Parser, Debug)]
@@ -221,10 +205,16 @@ fn open(filename: &str) -> Result<Box<dyn BufRead>> {
     }
 }
 
-fn extract_chars(line: &str, char_pos: &[Range<usize>]) -> String {
+fn extract_chars(line: &str, char_pos: &[AnyRange<usize>]) -> String {
     char_pos
         .iter()
         .flat_map(|range| {
+            let chars = line.chars();
+            let range = match range.clone() {
+                AnyRange::From(from) => from.start..chars.count(),
+                AnyRange::To(to) => 0..to.end,
+                AnyRange::Range(range) => range,
+            };
             range
                 .clone()
                 .filter_map(|index| line.chars().nth(index))
@@ -233,26 +223,36 @@ fn extract_chars(line: &str, char_pos: &[Range<usize>]) -> String {
         .collect()
 }
 
-fn extract_bytes(line: &str, char_pos: &[Range<usize>]) -> String {
+fn extract_bytes(line: &str, char_pos: &[AnyRange<usize>]) -> String {
     let extracted_bytes = char_pos
         .iter()
         .flat_map(|range| {
+            let bytes = line.as_bytes();
+            let range = match range.clone() {
+                AnyRange::From(from) => from.start..bytes.len(),
+                AnyRange::To(to) => 0..to.end,
+                AnyRange::Range(range) => range,
+            };
             range
                 .clone()
-                .filter_map(|index| line.as_bytes().get(index).copied())
+                .filter_map(|index| bytes.get(index).copied())
                 .collect::<Vec<u8>>()
         })
         .collect::<Vec<u8>>();
     String::from_utf8_lossy(&extracted_bytes).to_string()
 }
 
-fn extract_fields(line: &str, delim: u8, char_pos: &[Range<usize>]) -> String {
+fn extract_fields(line: &str, delim: u8, char_pos: &[AnyRange<usize>]) -> String {
     char_pos
         .iter()
         .flat_map(|range| {
-            range
-                .clone()
-                .filter_map(|index| line.split(delim as char).nth(index))
+            let fields = || line.split(delim as char);
+            let range = match range.clone() {
+                AnyRange::From(from) => from.start..fields().count(),
+                AnyRange::To(to) => 0..to.end,
+                AnyRange::Range(range) => range,
+            };
+            range.filter_map(move |index| fields().nth(index))
         })
         .collect::<Vec<&str>>()
         .join(&String::from(delim as char))
@@ -343,7 +343,8 @@ mod unit_tests {
         assert!(res.is_err());
 
         let res = parse_pos("1-");
-        assert!(res.is_err());
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), vec![AnyRange::From(0..)]);
 
         let res = parse_pos("1-1-1");
         assert!(res.is_err());
@@ -369,50 +370,106 @@ mod unit_tests {
 
         let res = parse_pos("1");
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), vec![0..1]);
+        assert_eq!(res.unwrap(), vec![AnyRange::Range(0..1)]);
 
         let res = parse_pos("01");
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), vec![0..1]);
+        assert_eq!(res.unwrap(), vec![AnyRange::Range(0..1)]);
 
         let res = parse_pos("1,3");
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), vec![0..1, 2..3]);
+        assert_eq!(
+            res.unwrap(),
+            vec![AnyRange::Range(0..1), AnyRange::Range(2..3)]
+        );
 
         let res = parse_pos("001,0003");
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), vec![0..1, 2..3]);
+        assert_eq!(
+            res.unwrap(),
+            vec![AnyRange::Range(0..1), AnyRange::Range(2..3)]
+        );
 
         let res = parse_pos("1-3");
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), vec![0..3]);
+        assert_eq!(res.unwrap(), vec![AnyRange::Range(0..3)]);
 
         let res = parse_pos("1,7,3-5");
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), vec![0..1, 6..7, 2..5]);
+        assert_eq!(
+            res.unwrap(),
+            vec![
+                AnyRange::Range(0..1),
+                AnyRange::Range(6..7),
+                AnyRange::Range(2..5)
+            ]
+        );
 
         let res = parse_pos("15,19-20");
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), vec![14..15, 18..20]);
+        assert_eq!(
+            res.unwrap(),
+            vec![AnyRange::Range(14..15), AnyRange::Range(18..20)]
+        );
     }
 
     #[test]
     fn test_extract_chars() {
-        assert_eq!(extract_chars("", &[0..1]), "".to_string());
-        assert_eq!(extract_chars("ábc", &[0..1]), "á".to_string());
-        assert_eq!(extract_chars("ábc", &[0..1, 2..3]), "ác".to_string());
-        assert_eq!(extract_chars("ábc", &[0..3]), "ábc".to_string());
-        assert_eq!(extract_chars("ábc", &[2..3, 1..2]), "cb".to_string());
-        assert_eq!(extract_chars("ábc", &[0..1, 1..2, 4..5]), "áb".to_string());
+        assert_eq!(extract_chars("", &[AnyRange::Range(0..1)]), "".to_string());
+        assert_eq!(
+            extract_chars("ábc", &[AnyRange::Range(0..1)]),
+            "á".to_string()
+        );
+        assert_eq!(
+            extract_chars("ábc", &[AnyRange::Range(0..1), AnyRange::Range(2..3)]),
+            "ác".to_string()
+        );
+        assert_eq!(
+            extract_chars("ábc", &[AnyRange::Range(0..3)]),
+            "ábc".to_string()
+        );
+        assert_eq!(
+            extract_chars("ábc", &[AnyRange::Range(2..3), AnyRange::Range(1..2)]),
+            "cb".to_string()
+        );
+        assert_eq!(
+            extract_chars(
+                "ábc",
+                &[
+                    AnyRange::Range(0..1),
+                    AnyRange::Range(1..2),
+                    AnyRange::Range(4..5)
+                ]
+            ),
+            "áb".to_string()
+        );
     }
 
     #[test]
     fn test_extract_bytes() {
-        assert_eq!(extract_bytes("ábc", &[0..1]), "�".to_string());
-        assert_eq!(extract_bytes("ábc", &[0..2]), "á".to_string());
-        assert_eq!(extract_bytes("ábc", &[0..3]), "áb".to_string());
-        assert_eq!(extract_bytes("ábc", &[0..4]), "ábc".to_string());
-        assert_eq!(extract_bytes("ábc", &[3..4, 2..3]), "cb".to_string());
-        assert_eq!(extract_bytes("ábc", &[0..2, 5..6]), "á".to_string());
+        assert_eq!(
+            extract_bytes("ábc", &[AnyRange::Range(0..1)]),
+            "�".to_string()
+        );
+        assert_eq!(
+            extract_bytes("ábc", &[AnyRange::Range(0..2)]),
+            "á".to_string()
+        );
+        assert_eq!(
+            extract_bytes("ábc", &[AnyRange::Range(0..3)]),
+            "áb".to_string()
+        );
+        assert_eq!(
+            extract_bytes("ábc", &[AnyRange::Range(0..4)]),
+            "ábc".to_string()
+        );
+        assert_eq!(
+            extract_bytes("ábc", &[AnyRange::Range(3..4), AnyRange::Range(2..3)]),
+            "cb".to_string()
+        );
+        assert_eq!(
+            extract_bytes("ábc", &[AnyRange::Range(0..2), AnyRange::Range(5..6)]),
+            "á".to_string()
+        );
     }
 }
