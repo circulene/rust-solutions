@@ -153,6 +153,7 @@ struct Args {
         value_name = "FIELDS",
         help = "Selected fields",
         value_parser(PositionListParser::new()),
+        allow_hyphen_values(true),
         required(true),
         conflicts_with_all(["bytes", "chars"]),
     )]
@@ -164,6 +165,7 @@ struct Args {
         value_name = "BYTES",
         help = "Selected bytes",
         value_parser(PositionListParser::new()),
+        allow_hyphen_values(true),
         required(true),
         conflicts_with_all(["fields", "chars"]),
     )]
@@ -175,6 +177,7 @@ struct Args {
         value_name = "CHARS",
         help = "Selected characters",
         value_parser(PositionListParser::new()),
+        allow_hyphen_values(true),
         required(true),
         conflicts_with_all(["fields", "bytes"]),
     )]
@@ -209,15 +212,15 @@ fn extract_chars(line: &str, char_pos: &[AnyRange<usize>]) -> String {
     char_pos
         .iter()
         .flat_map(|range| {
-            let chars = line.chars();
+            let chars = || line.chars();
             let range = match range.clone() {
-                AnyRange::From(from) => from.start..chars.count(),
+                AnyRange::From(from) => from.start..chars().count(),
                 AnyRange::To(to) => 0..to.end,
                 AnyRange::Range(range) => range,
             };
             range
                 .clone()
-                .filter_map(|index| line.chars().nth(index))
+                .filter_map(|index| chars().nth(index))
                 .collect::<Vec<char>>()
         })
         .collect()
@@ -410,6 +413,29 @@ mod unit_tests {
         assert_eq!(
             res.unwrap(),
             vec![AnyRange::Range(14..15), AnyRange::Range(18..20)]
+        );
+
+        let res = parse_pos("-3");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), vec![AnyRange::To(..3)]);
+
+        let res = parse_pos("1,-3");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), vec![AnyRange::Range(0..1), AnyRange::To(..3)]);
+
+        let res = parse_pos("-3,5-");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), vec![AnyRange::To(..3), AnyRange::From(4..)]);
+
+        let res = parse_pos("3-");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), vec![AnyRange::From(2..)]);
+
+        let res = parse_pos("1-3,5-");
+        assert!(res.is_ok());
+        assert_eq!(
+            res.unwrap(),
+            vec![AnyRange::Range(0..3), AnyRange::From(4..)]
         );
     }
 
