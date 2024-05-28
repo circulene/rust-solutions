@@ -1,6 +1,11 @@
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+};
+
 use anyhow::{Error, Result};
 use clap::{command, Parser};
-use regex::RegexBuilder;
+use regex::{Regex, RegexBuilder};
 use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
@@ -26,6 +31,9 @@ struct Args {
 }
 
 fn find_files(paths: &[String], recursive: bool) -> Vec<Result<String>> {
+    if paths.len() == 1 && paths[0] == "-" {
+        return vec![Ok("-".to_string())];
+    }
     paths
         .iter()
         .flat_map(|path| WalkDir::new(path).max_depth(recursive as usize).into_iter())
@@ -47,14 +55,59 @@ fn find_files(paths: &[String], recursive: bool) -> Vec<Result<String>> {
         .collect::<Vec<_>>()
 }
 
+fn open(filename: &str) -> Result<Box<dyn BufRead>> {
+    match filename {
+        "-" => Ok(Box::new(BufReader::new(std::io::stdin()))),
+        _ => Ok(Box::new(BufReader::new(File::open(filename)?))),
+    }
+}
+
+fn find_lines<T: BufRead>(file: T, pattern: &Regex, invert_match: bool) -> Result<Vec<String>> {
+    let mut result = Vec::new();
+    for line in file.lines() {
+        let line = line?;
+        if pattern.is_match(&line) {
+            if !invert_match {
+                result.push(line);
+            }
+        } else if invert_match {
+            result.push(line);
+        }
+    }
+    Ok(result)
+}
+
 fn run(args: Args) -> Result<()> {
-    dbg!(&args);
     let pattern = RegexBuilder::new(&args.pattern)
         .case_insensitive(args.insensitive)
         .build()
-        .map_err(|err| Error::msg(format!("Invalid pattern \"{}\"", &args.pattern)))?;
-    for path in find_files(&args.files, args.recursive) {
-        println!("{}", path?);
+        .map_err(|_| Error::msg(format!("Invalid pattern \"{}\"", &args.pattern)))?;
+    let entries = find_files(&args.files, args.recursive);
+    for entry in &entries {
+        match entry {
+            Err(e) => eprintln!("{}", e),
+            Ok(filename) => match open(filename) {
+                Err(e) => eprintln!("{}: {}", filename, e),
+                Ok(file) => {
+                    let matches = find_lines(file, &pattern, args.invert_match)?;
+                    if args.count {
+                        if entries.len() > 1 {
+                            println!("{}:{}", filename, matches.len());
+                        } else {
+                            println!("{}", matches.len());
+                        }
+                    } else {
+                        for line in matches {
+                            if entries.len() > 1 {
+                                println!("{}:{}", filename, line);
+                            } else {
+                                println!("{}", line);
+                            }
+                        }
+                    }
+                }
+            },
+        }
     }
     Ok(())
 }
@@ -62,14 +115,15 @@ fn run(args: Args) -> Result<()> {
 fn main() {
     if let Err(e) = run(Args::parse()) {
         eprintln!("{}", e);
+        std::process::exit(1);
     }
-    std::process::exit(1);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rand::{distributions::Alphanumeric, Rng};
+    use std::io::Cursor;
 
     #[test]
     fn test_find_files() {
@@ -112,5 +166,37 @@ mod tests {
         let files = find_files(&[bad], false);
         assert_eq!(files.len(), 1);
         assert!(files[0].is_err());
+    }
+
+    #[test]
+    fn test_find_lines() {
+        let text = b"Lorem\nIpsum\r\nDOLOR";
+
+        // should match "Lorem"
+        let re1 = Regex::new("or").unwrap();
+        let matches = find_lines(Cursor::new(&text), &re1, false);
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap().len(), 1);
+
+        // should match "Ipsum" and "DOLOR"
+        let matches = find_lines(Cursor::new(&text), &re1, true);
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap().len(), 2);
+
+        // regex which does not distinguish sequence "or" from sequence "OR"
+        let re2 = RegexBuilder::new("or")
+            .case_insensitive(true)
+            .build()
+            .unwrap();
+
+        // should match "Lorem" and "DOLOR"
+        let matches = find_lines(Cursor::new(&text), &re2, false);
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap().len(), 2);
+
+        // should match "Ipsum"
+        let matches = find_lines(Cursor::new(&text), &re2, true);
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap().len(), 1);
     }
 }
