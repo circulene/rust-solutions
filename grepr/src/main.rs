@@ -69,11 +69,7 @@ fn find_lines<T: BufRead>(mut file: T, pattern: &Regex, invert_match: bool) -> R
         match file.read_line(&mut buf) {
             Ok(0) => break,
             Ok(_) => {
-                if pattern.is_match(&buf) {
-                    if !invert_match {
-                        result.push(buf.clone());
-                    }
-                } else if invert_match {
+                if pattern.is_match(&buf) ^ invert_match {
                     result.push(buf.clone());
                 }
                 buf.clear();
