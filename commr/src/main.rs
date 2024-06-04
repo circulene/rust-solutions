@@ -56,9 +56,58 @@ pub fn run(args: &Args) -> Result<()> {
         return Err(Error::msg("Both input files cannot be STDIN (\"-\")"));
     }
 
-    let _file1 = open(file1)?;
-    let _file2 = open(file2)?;
-    println!("Opened {} and {}", file1, file2);
+    let mut file1_line_nums: Vec<usize> = vec![];
+    let mut file2_line_nums: Vec<usize> = vec![];
+    for (i1, line1) in open(file1)?.lines().enumerate() {
+        let line1 = &line1?;
+        for (i2, line2) in open(file2)?.lines().enumerate() {
+            let line2 = &line2?;
+            if *line1 == *line2 {
+                file1_line_nums.push(i1 + 1);
+                file2_line_nums.push(i2 + 1);
+            }
+        }
+    }
+
+    let delim = &args.delimiter;
+    let mut lines1 = open(file1)?.lines();
+    let mut lines2 = open(file2)?.lines();
+    let mut i1 = file1_line_nums.iter();
+    let mut i2 = file2_line_nums.iter();
+    let mut last_i1 = 0;
+    let mut last_i2 = 0;
+    loop {
+        let i1 = i1.next();
+        let i2 = i2.next();
+        if i1.is_none() && i2.is_none() {
+            for line1 in lines1.by_ref() {
+                println!("{}", line1?);
+            }
+            for line2 in lines2.by_ref() {
+                println!("{}{}", delim, line2?);
+            }
+            break;
+        }
+        if let Some(i1) = i1 {
+            for _ in last_i1..*i1 - 1 {
+                let line = lines1.next().transpose()?.unwrap();
+                println!("{}", line);
+            }
+            last_i1 = *i1;
+        }
+        if let Some(i2) = i2 {
+            for _ in last_i2..*i2 - 1 {
+                let line = lines2.next().transpose()?.unwrap();
+                println!("{}{}", delim, line);
+            }
+            last_i2 = *i2;
+        }
+        if let Some(i1) = i1 {
+            let line = lines1.next().transpose()?.unwrap();
+            lines2.next();
+            println!("{}{}{}", delim, delim, line);
+        }
+    }
 
     Ok(())
 }
