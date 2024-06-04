@@ -61,7 +61,12 @@ pub fn run(args: &Args) -> Result<()> {
         let line1 = &line1?;
         for (i2, line2) in open(file2)?.lines().enumerate() {
             let line2 = &line2?;
-            if *line1 == *line2 {
+            let matched = if args.insensitive {
+                line1.eq_ignore_ascii_case(line2)
+            } else {
+                line1.eq(line2)
+            };
+            if matched {
                 common_ids.push([i1, i2]);
             }
         }
@@ -76,30 +81,40 @@ pub fn run(args: &Args) -> Result<()> {
         let common_id = common_ids_iter.next();
         match common_id {
             Some(common_id) => {
-                let file1_range = last_common_id[0]..common_id[0];
-                for _ in file1_range {
+                if args.show_col1 {
+                    let file1_range = last_common_id[0]..common_id[0];
+                    for _ in file1_range {
+                        let line = lines1.next().transpose()?.unwrap();
+                        println!("{}", line);
+                    }
+                }
+
+                if args.show_col2 {
+                    let file2_range = last_common_id[1]..common_id[1];
+                    for _ in file2_range {
+                        let line = lines2.next().transpose()?.unwrap();
+                        println!("{}{}", delim, line);
+                    }
+                }
+
+                if args.show_col3 {
                     let line = lines1.next().transpose()?.unwrap();
-                    println!("{}", line);
+                    let _ = lines2.next();
+                    println!("{}{}{}", delim, delim, line);
                 }
-
-                let file2_range = last_common_id[1]..common_id[1];
-                for _ in file2_range {
-                    let line = lines2.next().transpose()?.unwrap();
-                    println!("{}{}", delim, line);
-                }
-
-                let line = lines1.next().transpose()?.unwrap();
-                let _ = lines2.next();
-                println!("{}{}{}", delim, delim, line);
 
                 last_common_id = *common_id;
             }
             None => {
-                for line1 in lines1.by_ref() {
-                    println!("{}", line1?);
+                if args.show_col1 {
+                    for line1 in lines1.by_ref() {
+                        println!("{}", line1?);
+                    }
                 }
-                for line2 in lines2.by_ref() {
-                    println!("{}{}", delim, line2?);
+                if args.show_col2 {
+                    for line2 in lines2.by_ref() {
+                        println!("{}{}", delim, line2?);
+                    }
                 }
                 break;
             }
