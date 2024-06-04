@@ -62,7 +62,7 @@ pub fn run(args: &Args) -> Result<()> {
         for (i2, line2) in open(file2)?.lines().enumerate() {
             let line2 = &line2?;
             if *line1 == *line2 {
-                common_ids.push([i1 + 1, i2 + 1]);
+                common_ids.push([i1, i2]);
             }
         }
     }
@@ -76,13 +76,13 @@ pub fn run(args: &Args) -> Result<()> {
         let common_id = common_ids_iter.next();
         match common_id {
             Some(common_id) => {
-                let file1_range = last_common_id[0]..common_id[0] - 1;
+                let file1_range = last_common_id[0]..common_id[0];
                 for _ in file1_range {
                     let line = lines1.next().transpose()?.unwrap();
                     println!("{}", line);
                 }
 
-                let file2_range = last_common_id[1]..common_id[1] - 1;
+                let file2_range = last_common_id[1]..common_id[1];
                 for _ in file2_range {
                     let line = lines2.next().transpose()?.unwrap();
                     println!("{}{}", delim, line);
