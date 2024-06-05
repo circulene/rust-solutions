@@ -56,11 +56,18 @@ pub fn run(args: &Args) -> Result<()> {
         return Err(Error::msg("Both input files cannot be STDIN (\"-\")"));
     }
 
+    let lines1 = open(file1)?
+        .lines()
+        .map(|x| x.unwrap())
+        .collect::<Vec<String>>();
+    let lines2 = open(file2)?
+        .lines()
+        .map(|x| x.unwrap())
+        .collect::<Vec<String>>();
     let mut common_ids: Vec<[usize; 2]> = vec![];
-    for (i1, line1) in open(file1)?.lines().enumerate() {
-        let line1 = &line1?;
-        for (i2, line2) in open(file2)?.lines().enumerate() {
-            let line2 = &line2?;
+
+    for (i1, line1) in lines1.iter().enumerate() {
+        for (i2, line2) in lines2.iter().enumerate() {
             let matched = if args.insensitive {
                 line1.eq_ignore_ascii_case(line2)
             } else {
@@ -77,6 +84,7 @@ pub fn run(args: &Args) -> Result<()> {
             println!("{}", s);
         }
     };
+
     let print2 = |s: &str| {
         if args.show_col2 {
             if args.show_col1 {
@@ -85,6 +93,7 @@ pub fn run(args: &Args) -> Result<()> {
             println!("{}", s);
         }
     };
+
     let print3 = |s: &str| {
         if args.show_col3 {
             if args.show_col1 {
@@ -97,8 +106,8 @@ pub fn run(args: &Args) -> Result<()> {
         }
     };
 
-    let mut lines1 = open(file1)?.lines();
-    let mut lines2 = open(file2)?.lines();
+    let mut lines1 = lines1.iter();
+    let mut lines2 = lines2.iter();
     let mut common_ids_iter = common_ids.iter();
     let mut last_common_id = [0, 0];
     loop {
@@ -107,28 +116,28 @@ pub fn run(args: &Args) -> Result<()> {
             Some(common_id) => {
                 let file2_range = last_common_id[1]..common_id[1];
                 for _ in file2_range {
-                    let line = lines2.next().transpose()?.unwrap();
-                    print2(&line);
+                    let line = lines2.next().unwrap();
+                    print2(line);
                 }
 
                 let file1_range = last_common_id[0]..common_id[0];
                 for _ in file1_range {
-                    let line = lines1.next().transpose()?.unwrap();
-                    print1(&line);
+                    let line = lines1.next().unwrap();
+                    print1(line);
                 }
 
-                let line = lines1.next().transpose()?.unwrap();
+                let line = lines1.next().unwrap();
                 let _ = lines2.next();
-                print3(&line);
+                print3(line);
 
                 last_common_id = [common_id[0] + 1, common_id[1] + 1]
             }
             None => {
                 for line1 in lines1.by_ref() {
-                    print1(&line1.unwrap());
+                    print1(line1);
                 }
                 for line2 in lines2.by_ref() {
-                    print2(&line2.unwrap());
+                    print2(line2);
                 }
                 break;
             }
