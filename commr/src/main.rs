@@ -72,7 +72,31 @@ pub fn run(args: &Args) -> Result<()> {
         }
     }
 
-    let delim = &args.delimiter;
+    let print1 = |s: &str| {
+        if args.show_col1 {
+            println!("{}", s);
+        }
+    };
+    let print2 = |s: &str| {
+        if args.show_col2 {
+            if args.show_col1 {
+                print!("{}", args.delimiter);
+            }
+            println!("{}", s);
+        }
+    };
+    let print3 = |s: &str| {
+        if args.show_col3 {
+            if args.show_col1 {
+                print!("{}", args.delimiter);
+            }
+            if args.show_col2 {
+                print!("{}", args.delimiter);
+            }
+            println!("{}", s);
+        }
+    };
+
     let mut lines1 = open(file1)?.lines();
     let mut lines2 = open(file2)?.lines();
     let mut common_ids_iter = common_ids.iter();
@@ -84,37 +108,27 @@ pub fn run(args: &Args) -> Result<()> {
                 let file2_range = last_common_id[1]..common_id[1];
                 for _ in file2_range {
                     let line = lines2.next().transpose()?.unwrap();
-                    if args.show_col2 {
-                        println!("{}{}", delim, line);
-                    }
+                    print2(&line);
                 }
 
                 let file1_range = last_common_id[0]..common_id[0];
                 for _ in file1_range {
                     let line = lines1.next().transpose()?.unwrap();
-                    if args.show_col1 {
-                        println!("{}", line);
-                    }
+                    print1(&line);
                 }
 
                 let line = lines1.next().transpose()?.unwrap();
                 let _ = lines2.next();
-                if args.show_col3 {
-                    println!("{}{}{}", delim, delim, line);
-                }
+                print3(&line);
 
                 last_common_id = [common_id[0] + 1, common_id[1] + 1]
             }
             None => {
-                if args.show_col2 {
-                    for line2 in lines2.by_ref() {
-                        println!("{}{}", delim, line2?);
-                    }
+                for line1 in lines1.by_ref() {
+                    print1(&line1.unwrap());
                 }
-                if args.show_col1 {
-                    for line1 in lines1.by_ref() {
-                        println!("{}", line1?);
-                    }
+                for line2 in lines2.by_ref() {
+                    print2(&line2.unwrap());
                 }
                 break;
             }
