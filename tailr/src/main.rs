@@ -3,6 +3,11 @@ use anyhow::{Error, Result};
 use clap::{builder::TypedValueParser, command, Arg, Command, Parser};
 use once_cell::sync::OnceCell;
 use regex::Regex;
+use std::{
+    cmp::max,
+    fs::File,
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+};
 
 static NUM_RE: OnceCell<Regex> = OnceCell::new();
 
@@ -105,9 +110,109 @@ struct Args {
     quiet: bool,
 }
 
+fn open_file(filename: &str) -> Result<File> {
+    File::open(filename).map_err(|e| Error::msg(format!("{}: {}", filename, e)))
+}
+
+fn open_bufread(filename: &str) -> Result<Box<dyn BufRead>> {
+    let file = open_file(filename)?;
+    Ok(Box::new(BufReader::new(file)))
+}
+
+fn count_lines_bytes(filename: &str) -> Result<(i64, i64)> {
+    let lines: i64 = open_bufread(filename)?.lines().count() as i64;
+    let mut buf = String::new();
+    let mut bytes: i64 = 0;
+    let mut file = open_bufread(filename)?;
+    loop {
+        let read_bytes = file.read_line(&mut buf)?;
+        if read_bytes == 0 {
+            break;
+        }
+        bytes += read_bytes as i64;
+        buf.clear();
+    }
+    Ok((lines, bytes))
+}
+
+fn get_start_index(take_val: &TakeValue, total: i64) -> Option<i64> {
+    match take_val {
+        TakeNum(num) => {
+            let num = *num;
+            if num == 0 || total == 0 || num > total {
+                None
+            } else if num < 0 {
+                Some(max(total + num, 0))
+            } else {
+                Some(num - 1)
+            }
+        }
+        PlusZero => {
+            if total != 0 {
+                Some(0)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn print_header(i: usize, filename: &str) {
+    if i > 0 {
+        println!();
+    }
+    println!("==> {} <==", filename);
+}
+
+fn print_lines(mut file: impl BufRead, num_lines: &TakeValue, total_lines: i64) -> Result<()> {
+    if let Some(start) = get_start_index(num_lines, total_lines) {
+        let mut line = String::new();
+        for i in 0..total_lines {
+            file.read_line(&mut line)?;
+            if i >= start {
+                print!("{}", line);
+            }
+            line.clear();
+        }
+    }
+    Ok(())
+}
+
+fn print_bytes<T>(mut file: T, num_bytes: &TakeValue, total_bytes: i64) -> Result<()>
+where
+    T: Read + Seek,
+{
+    if let Some(start) = get_start_index(num_bytes, total_bytes) {
+        file.seek(SeekFrom::Start(start as u64))?;
+        let mut buf = vec![0; (total_bytes - start) as usize];
+        file.read_exact(&mut buf)?;
+        print!("{}", String::from_utf8_lossy(&buf));
+    }
+    Ok(())
+}
+
+fn run(args: Args) -> Result<()> {
+    for (i, filename) in args.files.iter().enumerate() {
+        let (total_lines, total_bytes) = count_lines_bytes(filename)?;
+        if args.files.len() > 1 && !args.quiet {
+            print_header(i, filename);
+        }
+        if let Some(bytes) = &args.bytes {
+            let file = open_file(filename)?;
+            print_bytes(file, bytes, total_bytes)?;
+        } else {
+            let file = open_bufread(filename)?;
+            print_lines(file, &args.lines, total_lines)?;
+        }
+    }
+    Ok(())
+}
+
 fn main() {
     let args = Args::parse();
-    dbg!(args);
+    if let Err(err) = run(args) {
+        eprintln!("{}", err);
+    }
 }
 
 #[cfg(test)]
@@ -159,5 +264,39 @@ mod tests {
         let res = parse_num("foo");
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().to_string(), "foo");
+    }
+
+    #[test]
+    fn test_count_lines_bytes() {
+        let res = count_lines_bytes("tests/inputs/one.txt");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), (1, 24));
+
+        let res = count_lines_bytes("tests/inputs/twelve.txt");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), (12, 63));
+    }
+
+    #[test]
+    fn test_get_start_index() {
+        assert_eq!(get_start_index(&PlusZero, 0), None);
+
+        assert_eq!(get_start_index(&PlusZero, 1), Some(0));
+
+        assert_eq!(get_start_index(&TakeNum(0), 1), None);
+
+        assert_eq!(get_start_index(&TakeNum(1), 0), None);
+
+        assert_eq!(get_start_index(&TakeNum(2), 1), None);
+
+        assert_eq!(get_start_index(&TakeNum(1), 10), Some(0));
+        assert_eq!(get_start_index(&TakeNum(2), 10), Some(1));
+        assert_eq!(get_start_index(&TakeNum(3), 10), Some(2));
+
+        assert_eq!(get_start_index(&TakeNum(-1), 10), Some(9));
+        assert_eq!(get_start_index(&TakeNum(-2), 10), Some(8));
+        assert_eq!(get_start_index(&TakeNum(-3), 10), Some(7));
+
+        assert_eq!(get_start_index(&TakeNum(-20), 10), Some(0));
     }
 }
