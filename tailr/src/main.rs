@@ -120,16 +120,17 @@ fn open_bufread(filename: &str) -> Result<Box<dyn BufRead>> {
 }
 
 fn count_lines_bytes(filename: &str) -> Result<(i64, i64)> {
-    let lines: i64 = open_bufread(filename)?.lines().count() as i64;
-    let mut buf = String::new();
+    let mut lines: i64 = 0;
+    let mut buf = Vec::new();
     let mut bytes: i64 = 0;
     let mut file = open_bufread(filename)?;
     loop {
-        let read_bytes = file.read_line(&mut buf)?;
+        let read_bytes = file.read_until(b'\n', &mut buf)?;
         if read_bytes == 0 {
             break;
         }
         bytes += read_bytes as i64;
+        lines += 1;
         buf.clear();
     }
     Ok((lines, bytes))
