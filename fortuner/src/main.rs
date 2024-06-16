@@ -1,11 +1,12 @@
 use std::{
+    collections::HashSet,
     fs::File,
     io::{BufRead, BufReader},
     path::PathBuf,
     process::exit,
 };
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use clap::Parser;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use regex::RegexBuilder;
@@ -15,7 +16,7 @@ use walkdir::WalkDir;
 #[command(version, author, about)]
 pub struct Args {
     /// Input files or directories
-    #[arg(value_name = "FILES", required = true)]
+    #[arg(value_name = "FILE", required = true)]
     sources: Vec<String>,
 
     /// Pattern
@@ -61,7 +62,7 @@ fn read_fortunes(paths: &[PathBuf]) -> Result<Vec<Fortune>> {
                 let trimmed_text = text.trim_end();
                 if !trimmed_text.is_empty() {
                     fortunes.push(Fortune {
-                        source: path.to_string_lossy().to_string(),
+                        source: path.file_name().unwrap().to_string_lossy().to_string(),
                         text: trimmed_text.to_string(),
                     });
                 }
@@ -77,14 +78,8 @@ fn read_fortunes(paths: &[PathBuf]) -> Result<Vec<Fortune>> {
 
 fn pick_fortune(fortunes: &[Fortune], seed: Option<u64>) -> Option<String> {
     match seed {
-        Some(seed) => {
-            let mut rng = StdRng::seed_from_u64(seed);
-            fortunes.choose(&mut rng)
-        }
-        None => {
-            let mut rng = rand::thread_rng();
-            fortunes.choose(&mut rng)
-        }
+        Some(seed) => fortunes.choose(&mut StdRng::seed_from_u64(seed)),
+        None => fortunes.choose(&mut rand::thread_rng()),
     }
     .map(|f| f.text.to_owned())
 }
@@ -97,11 +92,32 @@ fn run() -> Result<()> {
             RegexBuilder::new(&pattern)
                 .case_insensitive(args.insensitive)
                 .build()
+                .map_err(|_| Error::msg(format!("Invalid --pattern \"{}\"", pattern)))
         })
         .transpose()?;
     let files = find_files(&args.sources)?;
     let fortunes = read_fortunes(&files)?;
-    println!("{}", fortunes.last().unwrap().text);
+    if fortunes.is_empty() {
+        println!("No fortunes found");
+        return Ok(());
+    }
+    if let Some(pattern) = pattern {
+        let mut sources = HashSet::new();
+        for fortune in fortunes {
+            if pattern.is_match(&fortune.text) {
+                if !sources.contains(&fortune.source) {
+                    eprintln!("({})\n%", fortune.source);
+                    sources.insert(fortune.source);
+                }
+                println!("{}\n%", fortune.text);
+            }
+        }
+    } else {
+        let fortune = pick_fortune(&fortunes, args.seed);
+        if let Some(fortune) = fortune {
+            println!("{}", fortune);
+        }
+    }
     Ok(())
 }
 
