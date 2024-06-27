@@ -22,8 +22,8 @@ const VALID_MONTH_NAMES: [&str; 12] = [
 #[derive(Parser)]
 pub struct Args {
     /// Year (1-9999)
-    #[arg(value_name = "YEAR")]
-    year: Option<String>,
+    #[arg(value_name = "YEAR", value_parser(clap::value_parser!(i32).range(1..=9999)))]
+    year: Option<i32>,
 
     /// Month name or number (1-12)
     #[arg(short = 'm', value_name = "MONTH", conflicts_with("show_current_year"))]
@@ -37,22 +37,6 @@ pub struct Args {
 fn parse_int<T: FromStr>(val: &str) -> Result<T> {
     val.parse::<T>()
         .map_err(|_| Error::msg(format!("Invalid integer \"{}\"", val)))
-}
-
-fn parse_year(year: &str) -> Result<i32> {
-    let year_range = 1..=9999;
-    parse_int::<i32>(year).and_then(|v| {
-        if year_range.contains(&v) {
-            Ok(v)
-        } else {
-            Err(Error::msg(format!(
-                "year \"{}\" not in the range {} through {}",
-                year,
-                year_range.start(),
-                year_range.end()
-            )))
-        }
-    })
 }
 
 fn parse_month(month: &str) -> Result<u32> {
@@ -88,11 +72,6 @@ fn parse_month(month: &str) -> Result<u32> {
 
 fn run(args: &Args) -> Result<()> {
     let today = Local::now();
-    let year = args
-        .year
-        .as_ref()
-        .map(|year| parse_year(year))
-        .transpose()?;
     let month = args
         .month
         .as_ref()
@@ -126,34 +105,6 @@ mod tests {
         let res = parse_int::<i64>("foo");
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().to_string(), "Invalid integer \"foo\"");
-    }
-
-    #[test]
-    fn test_parse_year() {
-        let res = parse_year("1");
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap(), 1i32);
-
-        let res = parse_year("9999");
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap(), 9999i32);
-
-        let res = parse_year("0");
-        assert!(res.is_err());
-        assert_eq!(
-            res.unwrap_err().to_string(),
-            "year \"0\" not in the range 1 through 9999"
-        );
-
-        let res = parse_year("10000");
-        assert!(res.is_err());
-        assert_eq!(
-            res.unwrap_err().to_string(),
-            "year \"10000\" not in the range 1 through 9999"
-        );
-
-        let res = parse_year("foo");
-        assert!(res.is_err());
     }
 
     #[test]
