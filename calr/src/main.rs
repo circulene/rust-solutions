@@ -1,9 +1,10 @@
-use std::{iter::zip, process::exit, str::FromStr};
+use std::{process::exit, str::FromStr};
 
 use ansi_term::Style;
 use anyhow::{Error, Result};
-use chrono::{Datelike, Days, Local, Months, NaiveDate, Weekday};
+use chrono::{Datelike, Local, NaiveDate, Weekday};
 use clap::Parser;
+use itertools::izip;
 
 const VALID_MONTH_NAMES: [&str; 12] = [
     "January",
@@ -119,23 +120,19 @@ fn format_month(year: i32, month: u32, print_year: bool, today: NaiveDate) -> Ve
     format_month
 }
 
-#[allow(dead_code)]
-fn last_day_in_month(year: i32, month: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(year, month, 1).unwrap() + Months::new(1) - Days::new(1)
-}
-
 fn show_whole_year(year: i32, today: NaiveDate) {
     println!("{:>32}", year);
-    for quarter in 1..=4 {
-        let month_in_quarter = (quarter - 1) * 3 + 1;
-        let m1 = format_month(year, month_in_quarter, false, today);
-        let m2 = format_month(year, month_in_quarter + 1, false, today);
-        let m3 = format_month(year, month_in_quarter + 2, false, today);
-        for ((s1, s2), s3) in zip(zip(m1, m2), m3) {
-            println!("{}{}{}", s1, s2, s3);
-        }
-        if quarter < 4 {
-            println!();
+    let lines: Vec<_> = (1..=12)
+        .map(|month| format_month(year, month, false, today))
+        .collect();
+    for (i, chunk) in lines.chunks(3).enumerate() {
+        if let [m1, m2, m3] = chunk {
+            for (s1, s2, s3) in izip!(m1, m2, m3) {
+                println!("{}{}{}", s1, s2, s3)
+            }
+            if i < 3 {
+                println!();
+            }
         }
     }
 }
@@ -264,21 +261,5 @@ mod tests {
         ];
         let today = NaiveDate::from_ymd_opt(2021, 4, 7).unwrap();
         assert_eq!(format_month(2021, 4, true, today), april_hl);
-    }
-
-    #[test]
-    fn test_last_day_in_month() {
-        assert_eq!(
-            last_day_in_month(2020, 1),
-            NaiveDate::from_ymd_opt(2020, 1, 31).unwrap()
-        );
-        assert_eq!(
-            last_day_in_month(2020, 2),
-            NaiveDate::from_ymd_opt(2020, 2, 29).unwrap()
-        );
-        assert_eq!(
-            last_day_in_month(2020, 4),
-            NaiveDate::from_ymd_opt(2020, 4, 30).unwrap()
-        )
     }
 }
