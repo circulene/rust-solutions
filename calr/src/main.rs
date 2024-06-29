@@ -124,30 +124,42 @@ fn last_day_in_month(year: i32, month: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(year, month, 1).unwrap() + Months::new(1) - Days::new(1)
 }
 
+fn show_whole_year(year: i32, today: NaiveDate) {
+    println!("{:>32}", year);
+    for quarter in 1..=4 {
+        let month_in_quarter = (quarter - 1) * 3 + 1;
+        let m1 = format_month(year, month_in_quarter, false, today);
+        let m2 = format_month(year, month_in_quarter + 1, false, today);
+        let m3 = format_month(year, month_in_quarter + 2, false, today);
+        for ((s1, s2), s3) in zip(zip(m1, m2), m3) {
+            println!("{}{}{}", s1, s2, s3);
+        }
+        if quarter < 4 {
+            println!();
+        }
+    }
+}
+
 fn run(args: &Args) -> Result<()> {
     let today = Local::now().date_naive();
     if args.show_current_year {
-        let year = today.year();
-        println!("{:^60}", year);
-        for quarter in 1..=4 {
-            let month_in_quarter = (quarter - 1) * 3 + 1;
-            let m1 = format_month(year, month_in_quarter, false, today);
-            let m2 = format_month(year, month_in_quarter + 1, false, today);
-            let m3 = format_month(year, month_in_quarter + 2, false, today);
-            for ((s1, s2), s3) in zip(zip(m1, m2), m3) {
-                println!("{}{}{}", s1, s2, s3);
-            }
-        }
+        show_whole_year(today.year(), today);
     } else {
-        let year = args.year.unwrap_or(today.year());
+        let year = args.year;
         let month = args
             .month
             .as_ref()
             .map(|month| parse_month(month))
-            .transpose()?
-            .unwrap_or(today.month());
-        for s in format_month(year, month, true, today) {
-            println!("{}", s);
+            .transpose()?;
+        match (year, month) {
+            (Some(year), None) => show_whole_year(year, today),
+            _ => {
+                let year = year.unwrap_or(today.year());
+                let month = month.unwrap_or(today.month());
+                for s in format_month(year, month, true, today) {
+                    println!("{}", s);
+                }
+            }
         }
     }
     Ok(())
