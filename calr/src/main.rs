@@ -1,22 +1,22 @@
 use std::{process::exit, str::FromStr};
 
 use anyhow::{Error, Result};
-use chrono::Local;
+use chrono::{DateTime, Datelike, Days, Local, Months, NaiveDate, Weekday};
 use clap::Parser;
 
 const VALID_MONTH_NAMES: [&str; 12] = [
-    "january",
-    "feburary",
-    "march",
-    "april",
-    "may",
-    "june",
-    "july",
-    "august",
-    "september",
-    "october",
-    "november",
-    "december",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 #[derive(Parser)]
@@ -57,7 +57,10 @@ fn parse_month(month: &str) -> Result<u32> {
         _ => {
             let mut candidate = None;
             for (i, valid_name) in VALID_MONTH_NAMES.iter().enumerate() {
-                if valid_name.starts_with::<&str>(month.to_lowercase().as_ref()) {
+                if valid_name
+                    .to_lowercase()
+                    .starts_with::<&str>(month.to_lowercase().as_ref())
+                {
                     if candidate.is_some() {
                         candidate = None;
                         break;
@@ -68,6 +71,56 @@ fn parse_month(month: &str) -> Result<u32> {
             candidate.ok_or(Error::msg(format!("Invalid month \"{}\"", month)))
         }
     }
+}
+
+fn format_month(year: i32, month: u32, print_year: bool, today: NaiveDate) -> Vec<String> {
+    let width = 20;
+    let last_space = "  ";
+    let mut format_month = vec![];
+    format_month.push(format!(
+        "{:^width$}  ",
+        format!(
+            "{}{}",
+            VALID_MONTH_NAMES[month as usize - 1],
+            if print_year {
+                format!(" {}", year)
+            } else {
+                "".to_string()
+            }
+        )
+    ));
+    format_month.push(format!("{:<width$}{}", "Su Mo Tu We Th Fr Sa", last_space));
+
+    let first_day_in_month = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+    let num_weeks_in_month = 6;
+    let emphasize = |day: String| format!("\u{1b}[7m{}\u{1b}[0m", day);
+    for sunday in first_day_in_month
+        .week(Weekday::Sun)
+        .first_day()
+        .iter_weeks()
+        .take(num_weeks_in_month)
+    {
+        let mut format_days_in_week = vec![];
+        for weekday in sunday.iter_days().take(7) {
+            if weekday.month() == month {
+                let format_day = format!("{:>2}", weekday.day());
+                format_days_in_week.push(if weekday == today {
+                    emphasize(format_day)
+                } else {
+                    format_day
+                });
+            } else {
+                format_days_in_week.push("  ".to_owned());
+            }
+        }
+        format_month.push(format!("{}{}", format_days_in_week.join(" "), last_space));
+    }
+    format_month
+}
+
+#[allow(dead_code)]
+fn last_day_in_month(year: i32, month: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(year, month, 1).unwrap() + Months::new(1) - Days::new(1)
 }
 
 fn run(args: &Args) -> Result<()> {
@@ -138,5 +191,62 @@ mod tests {
         let res = parse_month("foo");
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().to_string(), "Invalid month \"foo\"");
+    }
+
+    #[test]
+    fn test_format_month() {
+        let today = NaiveDate::from_ymd_opt(0, 1, 1).unwrap();
+        let leap_february = vec![
+            "   February 2020      ",
+            "Su Mo Tu We Th Fr Sa  ",
+            "                   1  ",
+            " 2  3  4  5  6  7  8  ",
+            " 9 10 11 12 13 14 15  ",
+            "16 17 18 19 20 21 22  ",
+            "23 24 25 26 27 28 29  ",
+            "                      ",
+        ];
+        assert_eq!(format_month(2020, 2, true, today), leap_february);
+
+        let may = vec![
+            "        May           ",
+            "Su Mo Tu We Th Fr Sa  ",
+            "                1  2  ",
+            " 3  4  5  6  7  8  9  ",
+            "10 11 12 13 14 15 16  ",
+            "17 18 19 20 21 22 23  ",
+            "24 25 26 27 28 29 30  ",
+            "31                    ",
+        ];
+        assert_eq!(format_month(2020, 5, false, today), may);
+
+        let april_hl = vec![
+            "     April 2021       ",
+            "Su Mo Tu We Th Fr Sa  ",
+            "             1  2  3  ",
+            " 4  5  6 \u{1b}[7m 7\u{1b}[0m  8  9 10  ",
+            "11 12 13 14 15 16 17  ",
+            "18 19 20 21 22 23 24  ",
+            "25 26 27 28 29 30     ",
+            "                      ",
+        ];
+        let today = NaiveDate::from_ymd_opt(2021, 4, 7).unwrap();
+        assert_eq!(format_month(2021, 4, true, today), april_hl);
+    }
+
+    #[test]
+    fn test_last_day_in_month() {
+        assert_eq!(
+            last_day_in_month(2020, 1),
+            NaiveDate::from_ymd_opt(2020, 1, 31).unwrap()
+        );
+        assert_eq!(
+            last_day_in_month(2020, 2),
+            NaiveDate::from_ymd_opt(2020, 2, 29).unwrap()
+        );
+        assert_eq!(
+            last_day_in_month(2020, 4),
+            NaiveDate::from_ymd_opt(2020, 4, 30).unwrap()
+        )
     }
 }
