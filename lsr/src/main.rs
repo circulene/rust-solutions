@@ -21,26 +21,31 @@ struct Args {
 
 fn find_files(paths: &[String], show_hidden: bool) -> Result<Vec<PathBuf>> {
     let mut files: Vec<PathBuf> = vec![];
+    let path_error = |path: &PathBuf, e| {
+        let context = format!("{}: {}", path.display(), e);
+        Error::new(e).context(context)
+    };
     for path in paths {
         let path = PathBuf::from(path);
-        if path.exists() {
-            if path.metadata()?.is_dir() {
-                for entry in path.read_dir()? {
-                    let entry = entry?;
-                    if entry.file_name().to_string_lossy().starts_with('.') && !show_hidden {
-                        continue;
-                    }
-                    files.push(entry.path());
+        if path.metadata().map_err(|e| path_error(&path, e))?.is_dir() {
+            for entry in path.read_dir()? {
+                let entry = entry?;
+                if entry.file_name().to_string_lossy().starts_with('.') && !show_hidden {
+                    continue;
                 }
-            } else {
-                files.push(path);
+                files.push(entry.path());
             }
+        } else {
+            files.push(path);
         }
     }
     Ok(files)
 }
 
 fn run(args: &Args) -> Result<()> {
+    for path in find_files(&args.paths, args.show_hidden)? {
+        println!("{}", path.display());
+    }
     Ok(())
 }
 
@@ -48,9 +53,8 @@ fn main() {
     let args = Args::parse();
     if let Err(e) = run(&args) {
         eprintln!("{}", e);
-        exit(1);
+        exit(0);
     }
-    println!("Hello, world!");
 }
 
 #[cfg(test)]
