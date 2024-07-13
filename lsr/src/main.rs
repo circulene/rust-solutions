@@ -1,7 +1,7 @@
 use std::{os::macos::fs::MetadataExt, path::PathBuf, process::exit};
 
 use anyhow::{Error, Result};
-use chrono::DateTime;
+use chrono::{DateTime, Local};
 use clap::Parser;
 use tabular::{Row, Table};
 
@@ -82,10 +82,7 @@ fn format_output(paths: &[PathBuf]) -> Result<String> {
                 // 6 size
                 .with_cell(metadata.st_size())
                 // 7 modified time
-                .with_cell(
-                    DateTime::from_timestamp_nanos(metadata.st_mtime_nsec())
-                        .format("%Y/%m/%d %H:%M"),
-                )
+                .with_cell(DateTime::<Local>::from(metadata.modified()?).format("%b %d %y %H:%M"))
                 // 8 path
                 .with_cell(path.display()),
         );
@@ -99,7 +96,7 @@ fn format_mode(mode: u32) -> String {
         if target & bit != 0 {
             sym.to_string()
         } else {
-            '-'.to_string()
+            "-".to_string()
         }
     };
     let stringify_mode = |m: u32| {
@@ -119,8 +116,13 @@ fn format_mode(mode: u32) -> String {
 }
 
 fn run(args: &Args) -> Result<()> {
-    for path in find_files(&args.paths, args.show_hidden)? {
-        println!("{}", path.display());
+    let paths = find_files(&args.paths, args.show_hidden)?;
+    if args.long {
+        print!("{}", format_output(&paths)?);
+    } else {
+        for path in &paths {
+            println!("{}", path.display());
+        }
     }
     Ok(())
 }
@@ -212,5 +214,64 @@ mod test {
     fn test_format_mode() {
         assert_eq!(format_mode(0o755), "rwxr-xr-x");
         assert_eq!(format_mode(0o421), "r---w---x");
+    }
+
+    fn long_match(
+        line: &str,
+        expected_name: &str,
+        expected_perms: &str,
+        expected_size: Option<&str>,
+    ) {
+        let parts: Vec<_> = line.split_whitespace().collect();
+        assert!(parts.len() > 0 && parts.len() <= 10);
+
+        let perms = parts.get(0).unwrap();
+        assert_eq!(perms, &expected_perms);
+
+        if let Some(size) = expected_size {
+            let file_size = parts.get(4).unwrap();
+            assert_eq!(file_size, &size);
+        }
+
+        let display_name = parts.last().unwrap();
+        assert_eq!(display_name, &expected_name);
+    }
+
+    #[test]
+    fn test_format_output_one() {
+        let bustle_path = "tests/inputs/bustle.txt";
+        let bustle = PathBuf::from(bustle_path);
+
+        let res = format_output(&[bustle]);
+        assert!(res.is_ok());
+
+        let out = res.unwrap();
+        let lines: Vec<&str> = out.split("\n").filter(|s| !s.is_empty()).collect();
+        assert_eq!(lines.len(), 1);
+
+        let line1 = lines.first().unwrap();
+        long_match(line1, bustle_path, "-rw-r--r--", Some("193"));
+    }
+
+    #[test]
+    fn test_format_output_two() {
+        let res = format_output(&[
+            PathBuf::from("tests/inputs/dir"),
+            PathBuf::from("tests/inputs/empty.txt"),
+        ]);
+        assert!(res.is_ok());
+
+        let out = res.unwrap();
+        let mut lines: Vec<&str> = out.split("\n").filter(|s| !s.is_empty()).collect();
+        lines.sort();
+        assert_eq!(lines.len(), 2);
+
+        let empty_line = lines.remove(0);
+        long_match(
+            empty_line,
+            "tests/inputs/empty.txt",
+            "-rw-r--r--",
+            Some("0"),
+        );
     }
 }
